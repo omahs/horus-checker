@@ -5,12 +5,8 @@ import Control.Monad.IO.Class (liftIO)
 import Data.Aeson (FromJSON, eitherDecodeFileStrict)
 import Data.Foldable (traverse_)
 import Data.Text (Text, pack, unpack)
-
--- import qualified Data.Text.IO as Text (writeFile)
 import System.Directory (createDirectoryIfMissing)
 import System.Environment (getArgs)
-
--- import System.FilePath ((</>))
 
 import Horus.Global (Config (..), produceSMT2Models)
 import qualified Horus.Global.Runner as Global (runT)
