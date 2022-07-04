@@ -75,7 +75,6 @@ library
       simple-smt,
       text,
       transformers,
-      tuple, 
       z3
 
 executable horus-check

@@ -1,3 +1,5 @@
+{-# LANGUAGE RecordWildCards #-}
+
 module Horus.Global
   ( GlobalT (..)
   , GlobalF (..)
@@ -25,6 +27,7 @@ import Horus.CFGBuild.Runner (CFG (..))
 import Horus.CairoSemantics (CairoSemanticsT, encodeSemantics)
 import Horus.CairoSemantics.Runner
   ( ConstraintsState (..)
+  , MemoryVariable (..)
   , SemanticsEnv (..)
   , debugFriendlyModel
   , makeModel
@@ -123,7 +126,13 @@ produceSMT2Models cd = do
   runZ3 $
     traverse
       (uncurry $ fetchModelFromSolver Solvers.mathsat)
-      (zip (map (map (\(x, y, _) -> (x, y)) . cs_memoryVariables) constraints) sexprs)
+      ( zip
+          ( map
+              (map (\MemoryVariable{..} -> (mv_varName, mv_addrName)) . cs_memoryVariables)
+              constraints
+          )
+          sexprs
+      )
 
 mkSemanticsEnv :: ContractDefinition -> [LabeledInst] -> SemanticsEnv
 mkSemanticsEnv cd labeledInsts =
