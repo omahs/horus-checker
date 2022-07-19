@@ -15,11 +15,11 @@ import Data.Aeson.Types (FromJSON (..), Parser)
 import Data.Functor ((<&>))
 import Data.Map (Map)
 import Data.Map qualified as Map (keys)
-import Numeric (readHex)
 
 import Horus.Label (Label (..))
 import Horus.SW.Identifier (Identifier)
 import Horus.SW.ScopedName (ScopedName)
+import Horus.Util qualified as Util (parseHexInteger)
 
 type Identifiers = Map ScopedName Identifier
 
@@ -84,6 +84,6 @@ instance FromJSON ApTracking where
     ApTracking <$> v .: "group" <*> v .: "offset"
 
 parseHexInteger :: String -> Parser Integer
-parseHexInteger ('0' : 'x' : rest)
-  | [(res, "")] <- readHex rest = pure res
-parseHexInteger arg = fail ("Can't parse '" <> arg <> "' as hex")
+parseHexInteger x = case Util.parseHexInteger x of
+  Nothing -> fail ("Can't parse " <> x <> " as a hex number.")
+  Just int -> pure int

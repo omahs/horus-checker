@@ -26,7 +26,10 @@ import Lens.Micro (at, ix, non, (^.))
 import Lens.Micro.GHC ()
 
 import Horus.ContractDefinition (Checks (..))
-import Horus.Instruction
+import Horus.Label (Label (..), moveLabel)
+import Horus.Program (Identifiers)
+import Horus.SW.Identifier (getFunctionPc, getLabelPc)
+import Horus.SW.Instruction
   ( Instruction (..)
   , LabeledInst
   , OpCode (..)
@@ -34,9 +37,6 @@ import Horus.Instruction
   , getNextPc
   , jumpDestination
   )
-import Horus.Label (Label (..), moveLabel)
-import Horus.Program (Identifiers)
-import Horus.SW.Identifier (getFunctionPc, getLabelPc)
 import Horus.Util (Box (..), appendList, topmostStepFT, whenJust)
 import SimpleSMT.Typed (TSExpr)
 import SimpleSMT.Typed qualified as SMT (TSExpr (True))

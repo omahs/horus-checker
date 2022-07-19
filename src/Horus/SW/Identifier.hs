@@ -13,8 +13,8 @@ import Data.Map (Map)
 import Data.Text (Text, unpack)
 
 import Horus.Label (Label)
-import Horus.SW.CairoType (CairoType)
-import Horus.SW.CairoType.JSON ()
+import Horus.SW.AST (CairoType)
+import Horus.SW.AST.JSON ()
 import Horus.SW.ScopedName (ScopedName)
 
 data Member = Member {me_cairoType :: CairoType, me_offset :: Int}

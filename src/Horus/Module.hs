@@ -18,13 +18,13 @@ import Lens.Micro (ix, (^.))
 
 import Horus.CFGBuild (ArcCondition (..), Label (..))
 import Horus.CFGBuild.Runner (CFG (..))
-import Horus.Instruction (LabeledInst)
 import Horus.Program (Identifiers)
 import Horus.SMTUtil (ap, fp)
 import Horus.SW.Identifier
   ( getFunctionPc
   , getLabelPc
   )
+import Horus.SW.Instruction (LabeledInst)
 import Horus.SW.ScopedName (ScopedName (..))
 import Horus.Util (tShow)
 import SimpleSMT.Typed (TSExpr, (.&&), (.==))

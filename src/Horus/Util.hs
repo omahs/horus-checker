@@ -11,6 +11,7 @@ module Horus.Util
   , commonPrefix
   , enumerate
   , maybeToError
+  , parseHexInteger
   )
 where
 
@@ -19,6 +20,7 @@ import Control.Monad.Trans.Free.Church (FT (..))
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Text (Text, pack)
 import Data.Text qualified as Text
+import Numeric (readHex)
 
 fieldPrime :: Integer
 fieldPrime = 2 ^ (251 :: Int) + 17 * 2 ^ (192 :: Int) + 1
@@ -63,3 +65,8 @@ enumerate = [minBound ..]
 
 maybeToError :: MonadError e m => e -> Maybe a -> m a
 maybeToError e = maybe (throwError e) pure
+
+parseHexInteger :: String -> Maybe Integer
+parseHexInteger ('0' : 'x' : rest)
+  | [(res, "")] <- readHex rest = Just res
+parseHexInteger _ = Nothing

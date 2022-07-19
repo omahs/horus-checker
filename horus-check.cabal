@@ -45,9 +45,9 @@ library
       Horus.ContractDefinition
       Horus.Global
       Horus.Global.Runner
-      Horus.Instruction
       Horus.Label
       Horus.Program
+      Horus.SW.Instruction
       Horus.Util
     other-modules:
       Horus.CFGBuild
@@ -60,11 +60,11 @@ library
       Horus.Preprocessor.Runner
       Horus.Preprocessor.Solvers
       Horus.SMTUtil
+      Horus.SW.AST
+      Horus.SW.AST.JSON
+      Horus.SW.AST.Lexer
+      Horus.SW.AST.Parser
       Horus.SW.Builtin
-      Horus.SW.CairoType
-      Horus.SW.CairoType.JSON
-      Horus.SW.CairoType.Lexer
-      Horus.SW.CairoType.Parser
       Horus.SW.Identifier
       Horus.SW.ScopedName
       Horus.SW.Std
@@ -103,7 +103,6 @@ executable horus-check
       optparse-applicative,
       pretty-simple,
       text,
-      z3,
 
 executable horus-disasm
     import:                  deps

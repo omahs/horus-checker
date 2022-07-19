@@ -20,9 +20,9 @@ import Control.Exception.Safe (bracket)
 import Data.Text (Text, unpack)
 import SimpleSMT qualified (SExpr (..), Solver, newSolver, stop)
 
-import Horus.Instruction (PointerRegister (..))
 import Horus.SW.Builtin (Builtin (..))
 import Horus.SW.Builtin qualified as Builtin (name, size)
+import Horus.SW.Instruction (PointerRegister (..))
 import SimpleSMT.Typed (TSExpr (..), (.&&), (.->), (.<), (.<=), (.==))
 import SimpleSMT.Typed qualified as SMT
 

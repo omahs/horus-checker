@@ -20,7 +20,10 @@ import Data.Map qualified as Map ((!?))
 import Data.Text (Text)
 import SimpleSMT qualified as SMT (SExpr (..))
 
-import Horus.Instruction
+import Horus.Program (ApTracking (..))
+import Horus.SMTUtil (memory, prime, regToTSExpr)
+import Horus.SMTUtil qualified as Util (ap, fp)
+import Horus.SW.Instruction
   ( ApUpdate (..)
   , Instruction (..)
   , LabeledInst
@@ -33,18 +36,13 @@ import Horus.Instruction
   )
 import Horus.Label (Label (..))
 import Horus.Module (Module (..))
-import Horus.Program (ApTracking (..))
 import Horus.SMTUtil
   ( builtinAligned
   , builtinConstraint
   , builtinEnd
   , builtinStart
-  , memory
-  , prime
-  , regToTSExpr
   , pattern Memory
   )
-import Horus.SMTUtil qualified as Util (ap, fp)
 import Horus.SW.Builtin (Builtin, BuiltinOffsets (..))
 import Horus.SW.Builtin qualified as Builtin (name)
 import Horus.Util (enumerate, tShow, whenJust, whenJustM)

@@ -1,4 +1,4 @@
-module Horus.Instruction
+module Horus.SW.Instruction
   ( Instruction (..)
   , LabeledInst
   , labelInsructions
