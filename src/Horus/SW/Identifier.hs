@@ -1,8 +1,11 @@
 module Horus.SW.Identifier
   ( Identifier (..)
+  , Identifiers
   , Member (..)
   , Struct (..)
   , Function (..)
+  , ReferenceData (..)
+  , Reference (..)
   , getFunctionPc
   , getLabelPc
   )
@@ -13,8 +16,9 @@ import Data.Map (Map)
 import Data.Text (Text, unpack)
 
 import Horus.Label (Label)
-import Horus.SW.AST (CairoType)
+import Horus.SW.AST (CairoType, Expr)
 import Horus.SW.AST.JSON ()
+import Horus.SW.ApTracking (ApTracking (..))
 import Horus.SW.ScopedName (ScopedName)
 
 data Member = Member {me_cairoType :: CairoType, me_offset :: Int}
@@ -26,6 +30,16 @@ data Struct = Struct
   }
   deriving stock (Show)
 data Function = Function {fu_pc :: Label, fu_decorators :: [Text]}
+data ReferenceData = ReferenceData
+  { rd_apTracking :: ApTracking
+  , rd_pc :: Int
+  , rd_value :: Expr
+  }
+data Reference = Reference
+  { ref_name :: ScopedName
+  , ref_cairoType :: CairoType
+  , ref_references :: [ReferenceData]
+  }
 
 data Identifier
   = IAlias ScopedName
@@ -36,8 +50,10 @@ data Identifier
   | ILabel Label
   | IFunction Function
   | INamespace
-  | IReference
+  | IReference Reference
   | IScope
+
+type Identifiers = Map ScopedName Identifier
 
 getFunctionPc :: Identifier -> Maybe Label
 getFunctionPc (IFunction f) = pure (fu_pc f)
@@ -58,7 +74,7 @@ instance FromJSON Identifier where
       "label" -> ILabel <$> v .: "pc"
       "function" -> IFunction <$> parseJSON (Object v)
       "namespace" -> pure INamespace
-      "reference" -> pure IReference
+      "reference" -> IReference <$> parseJSON (Object v)
       "scope" -> pure IScope
       _ -> fail ("Unknown type: '" <> unpack typ <> "'")
 
@@ -73,3 +89,17 @@ instance FromJSON Struct where
 instance FromJSON Function where
   parseJSON = withObject "Function" $ \v ->
     Function <$> v .: "pc" <*> v .: "decorators"
+
+instance FromJSON Reference where
+  parseJSON = withObject "Reference" $ \v ->
+    Reference
+      <$> v .: "full_name"
+      <*> v .: "cairo_type"
+      <*> v .: "references"
+
+instance FromJSON ReferenceData where
+  parseJSON = withObject "ReferenceData" $ \v ->
+    ReferenceData
+      <$> v .: "ap_tracking_data"
+      <*> v .: "pc"
+      <*> v .: "value"

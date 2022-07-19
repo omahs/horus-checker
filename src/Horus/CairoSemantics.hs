@@ -20,9 +20,7 @@ import Data.Map qualified as Map ((!?))
 import Data.Text (Text)
 import SimpleSMT qualified as SMT (SExpr (..))
 
-import Horus.Program (ApTracking (..))
-import Horus.SMTUtil (memory, prime, regToTSExpr)
-import Horus.SMTUtil qualified as Util (ap, fp)
+import Horus.SW.ApTracking (ApTracking (..))
 import Horus.SW.Instruction
   ( ApUpdate (..)
   , Instruction (..)
@@ -45,6 +43,8 @@ import Horus.SMTUtil
   )
 import Horus.SW.Builtin (Builtin, BuiltinOffsets (..))
 import Horus.SW.Builtin qualified as Builtin (name)
+import Horus.SMTUtil (memory, prime, regToTSExpr)
+import Horus.SMTUtil qualified as Util (ap, fp)
 import Horus.Util (enumerate, tShow, whenJust, whenJustM)
 import SimpleSMT.Typed (TSExpr (Mod, (:+)), (.&&), (.->), (./=), (.<), (.<=), (.==), (.||))
 import SimpleSMT.Typed qualified as TSMT

@@ -5,7 +5,6 @@ module Horus.Program
   , DebugInfo (..)
   , ILInfo (..)
   , FlowTrackingData (..)
-  , ApTracking (..)
   , Identifiers
   )
 where
@@ -17,11 +16,10 @@ import Data.Map (Map)
 import Data.Map qualified as Map (keys)
 
 import Horus.Label (Label (..))
-import Horus.SW.Identifier (Identifier)
+import Horus.SW.ApTracking (ApTracking)
+import Horus.SW.Identifier (Identifiers)
 import Horus.SW.ScopedName (ScopedName)
 import Horus.Util qualified as Util (parseHexInteger)
-
-type Identifiers = Map ScopedName Identifier
 
 data Program = Program
   { p_attributes :: [String]
@@ -47,9 +45,6 @@ data FlowTrackingData = FlowTrackingData
   { ftd_apTracking :: ApTracking
   , ftd_references :: [ScopedName]
   }
-  deriving stock (Show)
-
-data ApTracking = ApTracking {at_group :: Int, at_offset :: Int}
   deriving stock (Show)
 
 instance FromJSON Program where
@@ -78,10 +73,6 @@ instance FromJSON FlowTrackingData where
     FlowTrackingData
       <$> v .: "ap_tracking"
       <*> (v .: "reference_ids" <&> Map.keys @_ @Int)
-
-instance FromJSON ApTracking where
-  parseJSON = withObject "ap_tracking" $ \v ->
-    ApTracking <$> v .: "group" <*> v .: "offset"
 
 parseHexInteger :: String -> Parser Integer
 parseHexInteger x = case Util.parseHexInteger x of
