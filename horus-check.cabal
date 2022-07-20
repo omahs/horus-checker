@@ -60,6 +60,7 @@ library
       Horus.Preprocessor.Runner
       Horus.Preprocessor.Solvers
       Horus.SMTUtil
+      Horus.SMTUtil.Transpiler
       Horus.SW.ApTracking
       Horus.SW.AST
       Horus.SW.AST.JSON
