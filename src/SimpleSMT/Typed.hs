@@ -163,12 +163,14 @@ pattern Nat :: Integer -> TSExpr Integer
 pattern Nat i <- TSExpr (SMT.Atom (readMaybe -> Just i))
 
 pattern Neg :: TSExpr Integer -> TSExpr Integer
-pattern Neg i <- TSExpr (SMT.List [SMT.Atom "-", coerce -> i])
+pattern Neg i <-
+  TSExpr (SMT.List [SMT.Atom "-", coerce -> i])
   where
     Neg = coerce SMT.neg
 
 pattern Int :: Integer -> TSExpr Integer
-pattern Int i <- (int -> Just i)
+pattern Int i <-
+  (int -> Just i)
   where
     Int = fromInteger
 
@@ -178,7 +180,8 @@ int (Neg (Nat i)) = Just (-i)
 int _ = Nothing
 
 pattern (:+) :: TSExpr Integer -> TSExpr Integer -> TSExpr Integer
-pattern (:+) a b <- TSExpr (SMT.List [SMT.Atom "+", coerce -> a, coerce -> b])
+pattern (:+) a b <-
+  TSExpr (SMT.List [SMT.Atom "+", coerce -> a, coerce -> b])
   where
     (:+) = coerce SMT.add
 
@@ -186,12 +189,14 @@ pattern (:-) :: TSExpr Integer -> TSExpr Integer -> TSExpr Integer
 pattern (:-) a b <- TSExpr (SMT.List [SMT.Atom "-", coerce -> a, coerce -> b])
 
 pattern Mod :: TSExpr Integer -> TSExpr Integer -> TSExpr Integer
-pattern Mod a b <- TSExpr (SMT.List [SMT.Atom "mod", coerce -> a, coerce -> b])
+pattern Mod a b <-
+  TSExpr (SMT.List [SMT.Atom "mod", coerce -> a, coerce -> b])
   where
     Mod = coerce SMT.mod
 
 pattern And :: [TSExpr Bool] -> TSExpr Bool
-pattern And cs <- TSExpr (SMT.List (SMT.Atom "and" : (coerce -> cs)))
+pattern And cs <-
+  TSExpr (SMT.List (SMT.Atom "and" : (coerce -> cs)))
   where
     And = coerce SMT.andMany
 

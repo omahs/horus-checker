@@ -34,6 +34,7 @@ data PreprocessorF a
   = forall b. RunZ3 (Z3 b) (b -> a)
   | RunSolver Text ((SMT.Result, Maybe Text) -> a)
   | GetMemsAndAddrs ([(Text, Text)] -> a)
+  | GetReferences ([Text] -> a)
   | Throw Text
   | forall b. Catch (PreprocessorL b) (Text -> PreprocessorL b) (b -> a)
 
@@ -59,6 +60,9 @@ runSolver goal = liftF (RunSolver goal id)
 
 getMemsAndAddrs :: PreprocessorL [(Text, Text)]
 getMemsAndAddrs = liftF (GetMemsAndAddrs id)
+
+getReferences :: PreprocessorL [Text]
+getReferences = liftF (GetReferences id)
 
 throw :: Text -> PreprocessorL a
 throw e = liftF (Throw e)
@@ -119,6 +123,7 @@ data SolverResult = Unsat | Sat (Maybe Model) | Unknown (Maybe Text)
 data Model = Model
   { m_regs :: [(Text, Integer)]
   , m_mem :: Map Integer Integer
+  , m_refs :: Map Text Integer
   }
 
 instance Show SolverResult where
@@ -130,9 +135,11 @@ instance Show Model where
   show Model{..} =
     concatMap showAp m_regs
       <> concatMap showMem (toList m_mem)
+      <> concatMap showRef (toList m_refs)
    where
     showAp (reg, value) = printf "%8s\t=\t%d\n" reg value
     showMem (addr, value) = printf "mem[%3d]\t=\t%d\n" addr value
+    showRef (name, value) = printf "%8s\t=\t%d\n" name value
 
 solve :: Text -> PreprocessorL SolverResult
 solve smtQuery = do
@@ -196,6 +203,12 @@ z3ModelToHorusModel model =
         addr <- interpConst model addrName
         pure (toSignedFelt addr, toSignedFelt value)
       pure $ fromList addrValueList
+    <*> do
+      refs <- getReferences
+      refsAndValues <- for refs $ \name -> do
+        value <- interpConst model name
+        pure (name, toSignedFelt value)
+      pure $ fromList refsAndValues
  where
   parseRegVar :: (Text, Integer) -> Maybe (RegKind, Text, Integer)
   parseRegVar (name, value) =

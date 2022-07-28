@@ -20,7 +20,14 @@ import Data.Map qualified as Map ((!?))
 import Data.Text (Text)
 import SimpleSMT qualified as SMT (SExpr (..))
 
+import Horus.HReference (HReference (..))
+import Horus.Label (Label (..))
+import Horus.Module (Module (..))
+import Horus.SMTUtil (builtinAligned, builtinConstraint, builtinEnd, builtinStart, memory, prime, regToTSExpr, pattern Memory)
+import Horus.SMTUtil qualified as Util (ap, fp)
 import Horus.SW.ApTracking (ApTracking (..))
+import Horus.SW.Builtin (Builtin, BuiltinOffsets (..))
+import Horus.SW.Builtin qualified as Builtin (name)
 import Horus.SW.Instruction
   ( ApUpdate (..)
   , Instruction (..)
@@ -32,19 +39,6 @@ import Horus.SW.Instruction
   , getNextPc
   , uncheckedCallDestination
   )
-import Horus.Label (Label (..))
-import Horus.Module (Module (..))
-import Horus.SMTUtil
-  ( builtinAligned
-  , builtinConstraint
-  , builtinEnd
-  , builtinStart
-  , pattern Memory
-  )
-import Horus.SW.Builtin (Builtin, BuiltinOffsets (..))
-import Horus.SW.Builtin qualified as Builtin (name)
-import Horus.SMTUtil (memory, prime, regToTSExpr)
-import Horus.SMTUtil qualified as Util (ap, fp)
 import Horus.Util (enumerate, tShow, whenJust, whenJustM)
 import SimpleSMT.Typed (TSExpr (Mod, (:+)), (.&&), (.->), (./=), (.<), (.<=), (.==), (.||))
 import SimpleSMT.Typed qualified as TSMT
@@ -54,6 +48,7 @@ data CairoSemanticsF a
   | Expect' (TSExpr Bool) a
   | DeclareFelt Text (TSExpr Integer -> a)
   | DeclareMem (TSExpr Integer) (TSExpr Integer -> a)
+  | DeclareRef Text Label (TSExpr Integer) (TSExpr Integer -> a)
   | GetPreByCall LabeledInst (TSExpr Bool -> a)
   | GetPostByCall LabeledInst (TSExpr Bool -> a)
   | GetApTracking Label (ApTracking -> a)
@@ -76,6 +71,11 @@ declareFelt t = liftF (DeclareFelt t id)
 
 declareMem :: TSExpr Integer -> CairoSemanticsT m (TSExpr Integer)
 declareMem address = liftF (DeclareMem address id)
+
+declareRef :: Text -> Label -> TSExpr Integer -> CairoSemanticsT m (TSExpr Integer)
+declareRef name pc expr = do
+  expr' <- memoryRemoval expr
+  liftF (DeclareRef name pc expr' id)
 
 getPreByCall :: LabeledInst -> CairoSemanticsT m (TSExpr Bool)
 getPreByCall inst = liftF (GetPreByCall inst id)
@@ -134,8 +134,8 @@ moduleEndAp :: Module -> CairoSemanticsT m (TSExpr Integer)
 moduleEndAp Module{m_prog = []} = declareFelt "ap!"
 moduleEndAp Module{m_prog = m_prog} = getAp (getNextPc (last m_prog))
 
-encodeSemantics :: Module -> CairoSemanticsT m ()
-encodeSemantics m@Module{..} = do
+encodeSemantics :: [HReference] -> Module -> CairoSemanticsT m ()
+encodeSemantics refs m@Module{..} = do
   fp <- declareFelt "fp!"
   apStart <- moduleStartAp m
   apEnd <- moduleEndAp m
@@ -143,10 +143,18 @@ encodeSemantics m@Module{..} = do
   assert (prepare' apStart fp m_pre)
   expect (prepare' apEnd fp m_post)
   for_ m_prog $ \inst -> do
+    encodeRefs (fst inst) refs fp
     mkInstructionConstraints fp m_jnzOracle inst
   whenJust (nonEmpty m_prog) $ \neInsts -> do
     mkApConstraints fp apEnd neInsts
     mkBuiltinConstraints fp neInsts
+
+encodeRefs :: Label -> [HReference] -> TSExpr Integer -> CairoSemanticsT m ()
+encodeRefs pc refs fp = do
+  let currentRefDatas = [ref | ref@HReference{..} <- refs, href_pc == pc || unLabel href_pc == unLabel pc + 2]
+  for_ currentRefDatas $ \HReference{..} -> do
+    ap <- getAp href_pc
+    declareRef href_name href_pc (prepare' ap fp href_expr)
 
 mkInstructionConstraints :: TSExpr Integer -> Map Label Bool -> LabeledInst -> CairoSemanticsT m ()
 mkInstructionConstraints fp jnzOracle inst@(pc, Instruction{..}) = do

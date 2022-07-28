@@ -29,12 +29,15 @@ import Horus.CairoSemantics.Runner
   )
 import Horus.ContractDefinition (Checks, ContractDefinition (..), cPreConds, cdChecks)
 import Horus.ContractInfo (ContractInfo (..), mkContractInfo)
+import Horus.HReference (HReference (..))
+import Horus.Label (Label (..))
 import Horus.Module (Module, nameOfModule, runModuleL, traverseCFG)
 import Horus.Preprocessor (PreprocessorL, SolverResult (Unknown), solve)
 import Horus.Preprocessor.Runner (PreprocessorEnv (..))
 import Horus.Preprocessor.Solvers (Solver, SolverSettings)
 import Horus.Program (Identifiers, Program (..))
-import Horus.SW.Identifier (getFunctionPc)
+import Horus.SMTUtil.Transpiler (exprToSMT)
+import Horus.SW.Identifier (Identifier (..), Reference (..), ReferenceData (..), getFunctionPc)
 import Horus.SW.Instruction (labelInsructions, readAllInstructions)
 import Horus.Util (tShow)
 import SimpleSMT.Typed qualified as SMT (TSExpr (True))
@@ -113,22 +116,32 @@ makeModules cd cfg = pure (runModuleL (traverseCFG sources cfg))
     let pre = preConds ^. at name . non SMT.True
     pure (pc, pre)
 
-extractConstraints :: ContractInfo -> Module -> GlobalT m ConstraintsState
-extractConstraints env m = runCairoSemanticsT env (encodeSemantics m)
+makeReferences :: ContractDefinition -> GlobalT m [HReference]
+makeReferences cd = do
+  let identifiers = Map.toList $ p_identifiers (cd_program cd)
+  let cairoReferences = [ref | (IReference ref) <- snd <$> identifiers]
+  refs <- for cairoReferences $ \Reference{..} ->
+    for ref_references $ \ReferenceData{..} -> do
+      smtExpr <- exprToSMT rd_value
+      pure $ HReference (tShow ref_name) ref_cairoType smtExpr (Label rd_pc)
+  pure $ concat refs
+
+extractConstraints :: [HReference] -> ContractInfo -> Module -> GlobalT m ConstraintsState
+extractConstraints references env m = runCairoSemanticsT env (encodeSemantics references m)
 
 data SolvingInfo = SolvingInfo
   { si_moduleName :: Text
   , si_result :: SolverResult
   }
 
-solveModule :: ContractInfo -> Text -> Module -> GlobalT m SolvingInfo
-solveModule contractInfo smtPrefix m = do
+solveModule :: [HReference] -> ContractInfo -> Text -> Module -> GlobalT m SolvingInfo
+solveModule references contractInfo smtPrefix m = do
   result <- mkResult
   pure SolvingInfo{si_moduleName = moduleName, si_result = result}
  where
   mkResult = printingErrors $ do
     verbosePrint m
-    constraints <- extractConstraints contractInfo m
+    constraints <- extractConstraints references contractInfo m
     verbosePrint (debugFriendlyModel constraints)
     solveSMT smtPrefix constraints
   printingErrors a = a `catchError` (\e -> pure (Unknown (Just ("Error: " <> e))))
@@ -137,10 +150,11 @@ solveModule contractInfo smtPrefix m = do
 solveSMT :: Text -> ConstraintsState -> GlobalT m SolverResult
 solveSMT smtPrefix cs = do
   Config{..} <- askConfig
-  runPreprocessor (PreprocessorEnv memVars cfg_solver cfg_solverSettings) (solve query)
+  runPreprocessor (PreprocessorEnv memVars cfg_solver cfg_solverSettings refs) (solve query)
  where
   query = makeModel smtPrefix cs
   memVars = map (\mv -> (mv_varName mv, mv_addrName mv)) (cs_memoryVariables cs)
+  refs = fst <$> cs_references cs
 
 solveContract :: Monad m => ContractDefinition -> GlobalT m [SolvingInfo]
 solveContract cd = do
@@ -149,8 +163,9 @@ solveContract cd = do
   verbosePrint labeledInsts
   cfg <- makeCFG checks identifiers getFunPc labeledInsts
   verbosePrint cfg
+  references <- makeReferences cd
   modules <- makeModules cd cfg
-  for modules (solveModule contractInfo (cd_rawSmt cd))
+  for modules (solveModule references contractInfo (cd_rawSmt cd))
  where
   contractInfo = mkContractInfo cd
   getFunPc = ci_getFunPc contractInfo

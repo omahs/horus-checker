@@ -29,6 +29,7 @@ data PreprocessorEnv = PreprocessorEnv
   { pe_memsAndAddrs :: [(Text, Text)]
   , pe_solver :: Solver
   , pe_solverSettings :: SolverSettings
+  , pe_references :: [Text]
   }
 
 peMemsAndAddrs :: Lens' PreprocessorEnv [(Text, Text)]
@@ -39,6 +40,9 @@ peSolver lMod g = fmap (\x -> g{pe_solver = x}) (lMod (pe_solver g))
 
 peSolverSettings :: Lens' PreprocessorEnv SolverSettings
 peSolverSettings lMod g = fmap (\x -> g{pe_solverSettings = x}) (lMod (pe_solverSettings g))
+
+peReferences :: Lens' PreprocessorEnv [Text]
+peReferences lMod g = fmap (\x -> g{pe_references = x}) (lMod (pe_references g))
 
 type Impl a = ReaderT PreprocessorEnv (ExceptT Text Z3) a
 
@@ -54,6 +58,8 @@ interpret = iterM exec . runPreprocessor
     liftIO (runSolver externalSolver solverSettings tGoal) >>= cont
   exec (GetMemsAndAddrs cont) = do
     view peMemsAndAddrs >>= cont
+  exec (GetReferences cont) = do
+    view peReferences >>= cont
   exec (Throw e) = throwError e
   exec (Catch preprocessor handler cont) = do
     catchError (interpret preprocessor) (interpret . handler) >>= cont

@@ -23,6 +23,7 @@ import Lens.Micro.Mtl (use, (%=), (<%=))
 
 import Horus.CairoSemantics (CairoSemanticsF (..), CairoSemanticsT)
 import Horus.ContractInfo (ContractInfo (..))
+import Horus.Label (unLabel)
 import Horus.SMTUtil (builtinEnd, builtinStart, prime, rcBound)
 import Horus.SW.Builtin qualified as Builtin (rcBound)
 import Horus.Util (enumerate, fieldPrime, tShow)
@@ -37,6 +38,7 @@ data MemoryVariable = MemoryVariable
 
 data ConstraintsState = ConstraintsState
   { cs_memoryVariables :: [MemoryVariable]
+  , cs_references :: [(Text, TSExpr Integer)]
   , cs_asserts :: [TSExpr Bool]
   , cs_expects :: [TSExpr Bool]
   , cs_decls :: [Text]
@@ -45,6 +47,9 @@ data ConstraintsState = ConstraintsState
 
 csMemoryVariables :: Lens' ConstraintsState [MemoryVariable]
 csMemoryVariables lMod g = fmap (\x -> g{cs_memoryVariables = x}) (lMod (cs_memoryVariables g))
+
+csReferences :: Lens' ConstraintsState [(Text, TSExpr Integer)]
+csReferences lMod g = fmap (\x -> g{cs_references = x}) (lMod (cs_references g))
 
 csAsserts :: Lens' ConstraintsState [TSExpr Bool]
 csAsserts lMod g = fmap (\x -> g{cs_asserts = x}) (lMod (cs_asserts g))
@@ -62,6 +67,7 @@ emptyConstraintsState :: ConstraintsState
 emptyConstraintsState =
   ConstraintsState
     { cs_memoryVariables = []
+    , cs_references = []
     , cs_asserts = []
     , cs_expects = []
     , cs_decls = []
@@ -101,6 +107,14 @@ interpret = iterTM exec
         let addrName = "ADDR!" <> tShow freshCount
         csMemoryVariables %= (MemoryVariable name addrName address :)
         cont (SMT.const name)
+  exec (DeclareRef name pc expr cont) = do
+    let correctName = name <> "!" <> tShow (unLabel pc)
+    refs <- use csReferences
+    case List.find ((correctName ==) . fst) refs of
+      Just _ -> cont (SMT.const correctName)
+      Nothing -> do
+        csReferences %= ((correctName, expr) :)
+        cont (SMT.const correctName)
   exec (GetPreByCall inst cont) = do
     getPreByCall <- asks ci_getPreByCall
     getPreByCall inst & cont
@@ -124,6 +138,8 @@ debugFriendlyModel ConstraintsState{..} =
     concat
       [ ["# Memory"]
       , memoryPairs
+      , ["# References"]
+      , refPairs
       , ["# Assert"]
       , map SMT.showTSExpr cs_asserts
       , ["# Expect"]
@@ -133,6 +149,10 @@ debugFriendlyModel ConstraintsState{..} =
   memoryPairs =
     [ mv_varName <> "=[" <> SMT.showTSExpr mv_addrExpr <> "]"
     | MemoryVariable{..} <- cs_memoryVariables
+    ]
+  refPairs =
+    [ name <> "=[" <> SMT.showTSExpr expr <> "]"
+    | (name, expr) <- cs_references
     ]
 
 makeModel :: Text -> ConstraintsState -> Text
@@ -145,6 +165,7 @@ makeModel rawSmt ConstraintsState{..} =
           , map mv_addrName cs_memoryVariables
           , map (SMT.showTSExpr . builtinStart) enumerate
           , map (SMT.showTSExpr . builtinEnd) enumerate
+          , map fst cs_references
           ]
       decls = map SMT.declareInt names
       feltRestrictions = concat [[0 .<= SMT.const x, SMT.const x .< prime] | x <- tail names]
@@ -153,6 +174,10 @@ makeModel rawSmt ConstraintsState{..} =
         [ SMT.const mv_addrName .== mv_addrExpr
         | MemoryVariable{..} <- cs_memoryVariables
         ]
+      referenceDefinitions =
+        [ SMT.const refName .== refExpr
+        | (refName, refExpr) <- cs_references
+        ]
       restrictions =
         concat
           [ [prime .== fromInteger fieldPrime]
@@ -160,6 +185,7 @@ makeModel rawSmt ConstraintsState{..} =
           , feltRestrictions
           , memRestrictions
           , addrDefinitions
+          , referenceDefinitions
           , cs_asserts
           , [SMT.not (SMT.and cs_expects)]
           ]
