@@ -40,7 +40,12 @@ eioDecodeFileStrict path = do
     Right res -> pure res
 
 ppSolvingInfo :: SolvingInfo -> Text
-ppSolvingInfo SolvingInfo{..} = si_moduleName <> "\n" <> tShow si_result
+ppSolvingInfo SolvingInfo{..} =
+  si_moduleName
+    <> "\n"
+    <> tShow si_result
+    <> "\n"
+    <> si_refs
 
 main :: IO ()
 main = do

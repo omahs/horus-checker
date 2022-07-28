@@ -14,6 +14,7 @@ import Data.Function ((&))
 import Data.Map qualified as Map (toList)
 import Data.Maybe (mapMaybe)
 import Data.Text (Text)
+import Data.Text qualified as Text (intercalate)
 import Data.Traversable (for)
 import Lens.Micro (at, non, (^.))
 import Lens.Micro.GHC ()
@@ -29,14 +30,15 @@ import Horus.CairoSemantics.Runner
   )
 import Horus.ContractDefinition (Checks, ContractDefinition (..), cPreConds, cdChecks)
 import Horus.ContractInfo (ContractInfo (..), mkContractInfo)
-import Horus.HReference (HReference (..))
+import Horus.HReference (HReference (..), evalReference)
 import Horus.Label (Label (..))
 import Horus.Module (Module, nameOfModule, runModuleL, traverseCFG)
-import Horus.Preprocessor (PreprocessorL, SolverResult (Unknown), solve)
+import Horus.Preprocessor (PreprocessorL, SolverResult (..), solve)
 import Horus.Preprocessor.Runner (PreprocessorEnv (..))
 import Horus.Preprocessor.Solvers (Solver, SolverSettings)
 import Horus.Program (Identifiers, Program (..))
 import Horus.SMTUtil.Transpiler (exprToSMT)
+import Horus.SW.AST (CairoType (..), Expr (..))
 import Horus.SW.Identifier (Identifier (..), Reference (..), ReferenceData (..), getFunctionPc)
 import Horus.SW.Instruction (labelInsructions, readAllInstructions)
 import Horus.Util (tShow)
@@ -122,7 +124,10 @@ makeReferences cd = do
   let cairoReferences = [ref | (IReference ref) <- snd <$> identifiers]
   refs <- for cairoReferences $ \Reference{..} ->
     for ref_references $ \ReferenceData{..} -> do
-      smtExpr <- exprToSMT rd_value
+      smtExpr <- case (ref_cairoType, rd_value) of
+        (TypeStruct _name, Deref value) -> exprToSMT value
+        _ -> exprToSMT rd_value
+      -- smtExpr <- exprToSMT rd_value
       pure $ HReference (tShow ref_name) ref_cairoType smtExpr (Label rd_pc)
   pure $ concat refs
 
@@ -132,12 +137,27 @@ extractConstraints references env m = runCairoSemanticsT env (encodeSemantics re
 data SolvingInfo = SolvingInfo
   { si_moduleName :: Text
   , si_result :: SolverResult
+  , si_refs :: Text
   }
 
 solveModule :: [HReference] -> ContractInfo -> Text -> Module -> GlobalT m SolvingInfo
 solveModule references contractInfo smtPrefix m = do
   result <- mkResult
-  pure SolvingInfo{si_moduleName = moduleName, si_result = result}
+  tRefs <- case result of
+    Sat (Just model) ->
+      Text.intercalate "\n"
+        <$> ( for references $ \ref -> do
+                case evalReference model (ci_identifiers contractInfo) ref of
+                  Left e -> pure e
+                  Right t -> pure $ href_name ref <> " " <> t
+            )
+    _ -> pure ""
+  pure
+    SolvingInfo
+      { si_moduleName = moduleName
+      , si_result = result
+      , si_refs = tRefs
+      }
  where
   mkResult = printingErrors $ do
     verbosePrint m
