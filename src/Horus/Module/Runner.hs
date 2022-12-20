@@ -17,6 +17,7 @@ import Data.List.NonEmpty (NonEmpty)
 import Horus.Label (Label (..))
 import Horus.Module (Error, Module (..), ModuleF (..), ModuleL (..))
 import Horus.Util (tShow)
+import Debug.Trace (trace)
 
 type Impl = ReaderT (Set (NonEmpty Label, Label)) (WriterT (DList Module) (Except Error))
 
@@ -24,7 +25,7 @@ interpret :: ModuleL a -> Impl a
 interpret = iterM exec . runModuleL
  where
   exec :: ModuleF (Impl a) -> Impl a
-  exec (EmitModule m cont) = tell (D.singleton m) *> cont
+  exec (EmitModule m cont) = trace ("emitting module with spec: " ++ show (m_spec m)) $ tell (D.singleton m) *> cont
   exec (Visiting l action cont) = do
     visited <- ask
     local (Set.insert l) $ do

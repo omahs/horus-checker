@@ -227,6 +227,7 @@ solveContract :: [LabeledInst] -> GlobalL [SolvingInfo]
 solveContract lInstructions = do
   inlinable <- getInlinable
   cfg <- runCFGBuildL $ buildCFG lInstructions inlinable
+  verbosePrint cfg
   cfgs <- for (toAscList inlinable) $ \f ->
     runCFGBuildL (buildCFG lInstructions $ difference inlinable (singleton f)) <&> (,(== f))
   for_ cfgs $ verbosePrint . fst

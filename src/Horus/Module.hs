@@ -1,3 +1,4 @@
+{-# OPTIONS_GHC -Wno-unused-imports #-}
 module Horus.Module
   ( Module (..)
   , ModuleL (..)
@@ -38,6 +39,7 @@ import Horus.Program (Identifiers)
 import Horus.SW.FuncSpec (FuncSpec (..))
 import Horus.SW.Identifier (Function (..), getFunctionPc, getLabelPc)
 import Horus.SW.ScopedName (ScopedName (..))
+import Debug.Trace (traceM, trace)
 
 data Module = Module
   { m_spec :: ModuleSpec
@@ -185,7 +187,7 @@ gatherFromSource cfg function fSpec =
       | otherwise = emitPlain pre (Expr.and assertions)
 
     visitLinear SBRich
-      | onFinalNode = emitRich
+      | onFinalNode = emitRich (fs_pre fSpec) (Expr.and $ map snd (cfg_assertions cfg ^. ix l))
       | null assertions = visitArcs oracle' acc builder l
       | otherwise = extractPlainBuilder fSpec >>= visitLinear
     visitLinear (SBPlain pre)
@@ -199,10 +201,10 @@ gatherFromSource cfg function fSpec =
       Just (ArcCall fCallerPc fCalledF) -> push (fCallerPc, fCalledF) callstack
       Just ArcRet -> snd $ pop callstack
     oracle' = updateOracle arcCond callstack' oracle
-    assertions = cfg_assertions cfg ^. ix l
+    assertions = trace ("querying at: " ++ show l ++ " forL " ++ show (cfg_assertions cfg ^. ix l)) $ map snd (cfg_assertions cfg ^. ix l)
     onFinalNode = null (cfg_arcs cfg ^. ix l)
     emitPlain pre post = emitModule (Module (MSPlain (PlainSpec pre post)) acc oracle' (calledFOfCallEntry $ top callstack') (callstack', l))
-    emitRich = emitModule (Module (MSRich fSpec) acc oracle' (calledFOfCallEntry $ top callstack') (callstack', l))
+    emitRich pre post = emitModule (Module (MSRich (FuncSpec pre post (fs_storage fSpec))) acc oracle' (calledFOfCallEntry $ top callstack') (callstack', l))
 
     visitArcs newOracle acc' pre l' = do
       let outArcs = cfg_arcs cfg ^. ix l'

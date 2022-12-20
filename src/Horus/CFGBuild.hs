@@ -7,6 +7,10 @@ module Horus.CFGBuild
   , Label (..)
   , CFGBuildF (..)
   , LabeledInst
+  , AnnotationType(..)
+  , mkPre
+  , mkPost
+  , mkInv
   )
 where
 
@@ -19,7 +23,6 @@ import Data.List.NonEmpty (NonEmpty (..))
 import Data.List.NonEmpty qualified as NonEmpty (last, reverse, (<|))
 import Data.Map ((!))
 import Data.Map qualified as Map (toList)
-import Data.Maybe (fromMaybe)
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
@@ -34,7 +37,7 @@ import Horus.FunctionAnalysis
   , callersOf
   , pcToFunOfProg
   , programLabels
-  , sizeOfCall
+  , sizeOfCall, uncheckedScopedFOfPc
   )
 import Horus.Instruction
   ( Instruction (..)
@@ -50,6 +53,21 @@ import Horus.SW.FuncSpec (FuncSpec' (fs'_post, fs'_pre))
 import Horus.SW.Identifier (Function (fu_pc), Identifier (IFunction, ILabel))
 import Horus.SW.ScopedName (ScopedName)
 import Horus.Util (appendList, whenJustM)
+import Control.Arrow (Arrow(second))
+import Horus.Expr.Util (gatherLogicalVariables)
+import Debug.Trace (traceM)
+
+data AnnotationType = APre | APost | AInv
+  deriving stock (Show)
+
+mkPre :: Expr TBool -> (AnnotationType, Expr TBool)
+mkPre = (APre,)
+
+mkPost :: Expr TBool -> (AnnotationType, Expr TBool)
+mkPost = (APost,)
+
+mkInv :: Expr TBool -> (AnnotationType, Expr TBool)
+mkInv = (AInv,)
 
 data ArcCondition = ACNone | ACJnz Label Bool
   deriving stock (Show)
@@ -57,7 +75,7 @@ data ArcCondition = ACNone | ACJnz Label Bool
 data CFGBuildF a
   = AddVertex Label a
   | AddArc Label Label [LabeledInst] ArcCondition FInfo a
-  | AddAssertion Label (Expr TBool) a
+  | AddAssertion Label (AnnotationType, Expr TBool) a
   | AskIdentifiers (Identifiers -> a)
   | -- | AskInstructions ([LabeledInst] -> a)
     AskProgram (Program -> a)
@@ -85,7 +103,7 @@ addVertex l = liftF' (AddVertex l ())
 addArc :: Label -> Label -> [LabeledInst] -> ArcCondition -> FInfo -> CFGBuildL ()
 addArc lFrom lTo insts test f = liftF' (AddArc lFrom lTo insts test f ())
 
-addAssertion :: Label -> Expr TBool -> CFGBuildL ()
+addAssertion :: Label -> (AnnotationType, Expr TBool) -> CFGBuildL ()
 addAssertion l assertion = liftF' (AddAssertion l assertion ())
 
 askIdentifiers :: CFGBuildL Identifiers
@@ -136,7 +154,7 @@ buildFrame inlinable rows prog = do
   let segments = breakIntoSegments (programLabels rows $ p_identifiers prog) rows
   for_ segments $ \s -> do
     addVertex (segmentLabel s)
-    addArcsFrom inlinable prog rows s
+    addArcsFrom inlinable prog rows s True
 
 breakIntoSegments :: [Label] -> [LabeledInst] -> [Segment]
 breakIntoSegments _ [] = []
@@ -152,16 +170,25 @@ breakIntoSegments ls_ (i_ : is_) = coerce (go [] (i_ :| []) ls_ is_)
 addArc' :: Label -> Label -> [LabeledInst] -> CFGBuildL ()
 addArc' lFrom lTo insts = addArc lFrom lTo insts ACNone Nothing
 
-addArcsFrom :: Set ScopedFunction -> Program -> [LabeledInst] -> Segment -> CFGBuildL ()
-addArcsFrom inlinable prog rows s
+addArcsFrom :: Set ScopedFunction -> Program -> [LabeledInst] -> Segment -> Bool -> CFGBuildL ()
+addArcsFrom inlinable prog rows s optimizeWithSplit
   | Call <- i_opCode endInst =
       let calleePc = uncheckedCallDestination lIinst
        in if calleePc `Set.member` inlinableLabels
             then addArc lFrom calleePc insts ACNone . Just $ ArcCall endPc calleePc
-            else addArc' lFrom (nextSegmentLabel s) insts
+            else do
+              addArc' lFrom (nextSegmentLabel s) insts
+              when optimizeWithSplit $
+                let ghostLabel = unspecifiedLabel $ segmentLabel s
+                    func = uncheckedScopedFOfPc (p_identifiers prog) calleePc in do
+                addVertex ghostLabel
+                pre <- maybe (mkPre Expr.True) mkPre . fs'_pre <$> getFuncSpec func
+                addAssertion ghostLabel $ quantifyEx pre
+                traceM ("original pre: " ++ show pre ++ " ex pre: " ++ show (quantifyEx pre))
+                addArc' lFrom ghostLabel insts
   | Ret <- i_opCode endInst =
       let owner = sf_pc $ pcToFunOfProg prog ! endPc
-       in if owner `Set.notMember` inlinableLabels
+       in if owner `Set.notMember` inlinableLabels -- TODO: Don't think this ever triggers, try this.
             then pure ()
             else
               let callers = callersOf rows owner
@@ -188,6 +215,14 @@ addArcsFrom inlinable prog rows s
   insts = segmentInsts s
   inlinableLabels = Set.map sf_pc inlinable
 
+  quantifyEx :: (AnnotationType, Expr 'TBool) -> (AnnotationType, Expr 'TBool)
+  quantifyEx = second $ \expr ->
+    let lvars = gatherLogicalVariables expr in
+    foldr Expr.ExistsFelt expr lvars
+
+  unspecifiedLabel :: Label -> Label
+  unspecifiedLabel = Label . (-2 -) . unLabel
+
 -- TODO(the conditions are silly with the new model)
 addAssertions :: Set ScopedFunction -> Identifiers -> CFGBuildL ()
 addAssertions inlinable identifiers = do
@@ -203,9 +238,9 @@ addAssertions inlinable identifiers = do
             case (pre, post) of
               (Nothing, Nothing) ->
                 when (fu_pc f `Set.notMember` Set.map sf_pc inlinable) $
-                  for_ rets (`addAssertion` Expr.True)
-              _ -> for_ rets (`addAssertion` fromMaybe Expr.True post)
+                  for_ rets (`addAssertion` mkPost Expr.True)
+              _ -> for_ rets (`addAssertion` maybe (mkPost Expr.True) mkPost post)
     ILabel pc -> do
       whenJustM (getInvariant idName) $ \inv ->
-        pc `addAssertion` inv
+        pc `addAssertion` mkInv inv
     _ -> pure ()

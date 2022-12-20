@@ -18,7 +18,7 @@ import Lens.Micro (Lens', at, (&), (^.), _Just)
 import Lens.Micro.GHC ()
 import Lens.Micro.Mtl ((%=))
 
-import Horus.CFGBuild (ArcCondition (..), CFGBuildF (..), CFGBuildL (..), Label, LabeledInst)
+import Horus.CFGBuild (ArcCondition (..), CFGBuildF (..), CFGBuildL (..), Label, LabeledInst, AnnotationType)
 import Horus.ContractInfo (ContractInfo (..))
 import Horus.Expr (Expr, Ty (..))
 import Horus.FunctionAnalysis (FInfo)
@@ -28,7 +28,7 @@ type Impl = ReaderT ContractInfo (ExceptT Text (State CFG))
 data CFG = CFG
   { cfg_vertices :: [Label]
   , cfg_arcs :: Map Label [(Label, [LabeledInst], ArcCondition, FInfo)]
-  , cfg_assertions :: Map Label [Expr TBool]
+  , cfg_assertions :: Map Label [(AnnotationType, Expr TBool)]
   }
   deriving (Show)
 
@@ -41,7 +41,7 @@ cfgVertices lMod g = fmap (\x -> g{cfg_vertices = x}) (lMod (cfg_vertices g))
 cfgArcs :: Lens' CFG (Map Label [(Label, [LabeledInst], ArcCondition, FInfo)])
 cfgArcs lMod g = fmap (\x -> g{cfg_arcs = x}) (lMod (cfg_arcs g))
 
-cfgAssertions :: Lens' CFG (Map Label [Expr TBool])
+cfgAssertions :: Lens' CFG (Map Label [(AnnotationType, Expr TBool)])
 cfgAssertions lMod g = fmap (\x -> g{cfg_assertions = x}) (lMod (cfg_assertions g))
 
 interpret :: CFGBuildL a -> Impl a

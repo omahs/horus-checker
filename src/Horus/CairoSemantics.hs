@@ -1,4 +1,5 @@
 {-# LANGUAGE LambdaCase #-}
+{-# OPTIONS_GHC -Wno-unused-top-binds #-}
 
 module Horus.CairoSemantics
   ( encodeModule
@@ -359,12 +360,12 @@ mkCallConstraints pc nextPc fp f = do
         post' = suffixLogicalVariables lvarSuffix post
     removedStorage <- storageRemoval pre'
     preparedPre <- prepare calleePc calleeFp removedStorage
-    preparedPreCheckPoint <- prepareCheckPoint calleePc calleeFp =<< storageRemoval pre'
+    -- preparedPreCheckPoint <- prepareCheckPoint calleePc calleeFp =<< storageRemoval pre'
     dbgStrg <- traverseStorage (prepare nextPc calleeFp) storage
     updateStorage dbgStrg
     pop
     preparedPost <- prepare nextPc calleeFp =<< storageRemoval =<< storageRemoval post'
-    checkPoint preparedPreCheckPoint
+    -- checkPoint preparedPreCheckPoint
     assert (preparedPre .&& preparedPost)
  where
   lvarSuffix = "+" <> tShowLabel pc
