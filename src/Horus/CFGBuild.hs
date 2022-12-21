@@ -11,10 +11,13 @@ module Horus.CFGBuild
   , mkPre
   , mkPost
   , mkInv
+  , Vertex (..)
+  , getVerts
   )
 where
 
-import Control.Monad (when)
+import Control.Arrow (Arrow(second))
+import Control.Monad (when, unless)
 import Control.Monad.Except (MonadError (..))
 import Control.Monad.Free.Church (F, liftF)
 import Data.Coerce (coerce)
@@ -52,9 +55,9 @@ import Horus.Program (Identifiers, Program (..))
 import Horus.SW.FuncSpec (FuncSpec' (fs'_post, fs'_pre))
 import Horus.SW.Identifier (Function (fu_pc), Identifier (IFunction, ILabel))
 import Horus.SW.ScopedName (ScopedName)
-import Horus.Util (appendList, whenJustM)
-import Control.Arrow (Arrow(second))
+import Horus.Util (appendList, whenJustM, tShow)
 import Horus.Expr.Util (gatherLogicalVariables)
+
 import Debug.Trace (traceM)
 
 data AnnotationType = APre | APost | AInv
@@ -69,19 +72,32 @@ mkPost = (APost,)
 mkInv :: Expr TBool -> (AnnotationType, Expr TBool)
 mkInv = (AInv,)
 
+data Vertex = Vertex
+  { v_name :: Text
+  , v_label :: Label
+  }
+  deriving (Show)
+
+instance Eq Vertex where
+  (==) lhs rhs = v_name lhs == v_name rhs
+
+instance Ord Vertex where
+  compare lhs rhs = v_name lhs `compare` v_name rhs
+
 data ArcCondition = ACNone | ACJnz Label Bool
   deriving stock (Show)
 
 data CFGBuildF a
-  = AddVertex Label a
-  | AddArc Label Label [LabeledInst] ArcCondition FInfo a
-  | AddAssertion Label (AnnotationType, Expr TBool) a
+  = AddVertex Label (Vertex -> a)
+  | AddArc Vertex Vertex [LabeledInst] ArcCondition FInfo a
+  | AddAssertion Vertex (AnnotationType, Expr TBool) a
   | AskIdentifiers (Identifiers -> a)
   | -- | AskInstructions ([LabeledInst] -> a)
     AskProgram (Program -> a)
   | GetFuncSpec ScopedFunction (FuncSpec' -> a)
   | GetInvariant ScopedName (Maybe (Expr TBool) -> a)
   | GetRets ScopedName ([Label] -> a)
+  | GetVerts Label ([Vertex] -> a)
   | Throw Text
   | forall b. Catch (CFGBuildL b) (Text -> CFGBuildL b) (b -> a)
 
@@ -97,14 +113,14 @@ instance MonadError Text CFGBuildL where
 liftF' :: CFGBuildF a -> CFGBuildL a
 liftF' = CFGBuildL . liftF
 
-addVertex :: Label -> CFGBuildL ()
-addVertex l = liftF' (AddVertex l ())
+addVertex :: Label -> CFGBuildL Vertex
+addVertex l = liftF' (AddVertex l id)
 
-addArc :: Label -> Label -> [LabeledInst] -> ArcCondition -> FInfo -> CFGBuildL ()
-addArc lFrom lTo insts test f = liftF' (AddArc lFrom lTo insts test f ())
+addArc :: Vertex -> Vertex -> [LabeledInst] -> ArcCondition -> FInfo -> CFGBuildL ()
+addArc vFrom vTo insts test f = liftF' (AddArc vFrom vTo insts test f ())
 
-addAssertion :: Label -> (AnnotationType, Expr TBool) -> CFGBuildL ()
-addAssertion l assertion = liftF' (AddAssertion l assertion ())
+addAssertion :: Vertex -> (AnnotationType, Expr TBool) -> CFGBuildL ()
+addAssertion v assertion = liftF' (AddAssertion v assertion ())
 
 askIdentifiers :: CFGBuildL Identifiers
 askIdentifiers = liftF' (AskIdentifiers id)
@@ -123,6 +139,16 @@ getInvariant name = liftF' (GetInvariant name id)
 
 getRets :: ScopedName -> CFGBuildL [Label]
 getRets name = liftF' (GetRets name id)
+
+getVerts :: Label -> CFGBuildL [Vertex]
+getVerts l = liftF' (GetVerts l id)
+
+getUniqueVertex :: Label -> CFGBuildL Vertex
+getUniqueVertex l = do
+  verts <- getVerts l
+  unless (length verts == 1) . throw $
+    "Requested a unique vertex at: " <> tShow l <> " but there are: " <> tShow (length verts)
+  pure $ head verts
 
 throw :: Text -> CFGBuildL a
 throw t = liftF' (Throw t)
@@ -153,8 +179,8 @@ buildFrame :: Set ScopedFunction -> [LabeledInst] -> Program -> CFGBuildL ()
 buildFrame inlinable rows prog = do
   let segments = breakIntoSegments (programLabels rows $ p_identifiers prog) rows
   for_ segments $ \s -> do
-    addVertex (segmentLabel s)
-    addArcsFrom inlinable prog rows s True
+    v <- addVertex (segmentLabel s)
+    addArcsFrom inlinable prog rows s v True
 
 breakIntoSegments :: [Label] -> [LabeledInst] -> [Segment]
 breakIntoSegments _ [] = []
@@ -167,51 +193,55 @@ breakIntoSegments ls_ (i_ : is_) = coerce (go [] (i_ :| []) ls_ is_)
     | l == pc = go (NonEmpty.reverse lAcc : gAcc) (i :| []) ls is
     | otherwise = go gAcc (i NonEmpty.<| lAcc) (l : ls) is
 
-addArc' :: Label -> Label -> [LabeledInst] -> CFGBuildL ()
+addArc' :: Vertex -> Vertex -> [LabeledInst] -> CFGBuildL ()
 addArc' lFrom lTo insts = addArc lFrom lTo insts ACNone Nothing
 
-addArcsFrom :: Set ScopedFunction -> Program -> [LabeledInst] -> Segment -> Bool -> CFGBuildL ()
-addArcsFrom inlinable prog rows s optimizeWithSplit
+addArcsFrom :: Set ScopedFunction -> Program -> [LabeledInst] -> Segment -> Vertex -> Bool -> CFGBuildL ()
+addArcsFrom inlinable prog rows s vFrom optimizeWithSplit
   | Call <- i_opCode endInst =
-      let calleePc = uncheckedCallDestination lIinst
-       in if calleePc `Set.member` inlinableLabels
-            then addArc lFrom calleePc insts ACNone . Just $ ArcCall endPc calleePc
-            else do
-              addArc' lFrom (nextSegmentLabel s) insts
-              when optimizeWithSplit $
-                let ghostLabel = unspecifiedLabel $ segmentLabel s
-                    func = uncheckedScopedFOfPc (p_identifiers prog) calleePc in do
-                addVertex ghostLabel
-                pre <- maybe (mkPre Expr.True) mkPre . fs'_pre <$> getFuncSpec func
-                addAssertion ghostLabel $ quantifyEx pre
-                traceM ("original pre: " ++ show pre ++ " ex pre: " ++ show (quantifyEx pre))
-                addArc' lFrom ghostLabel insts
+      -- let calleePc = uncheckedCallDestination lInst
+      let callee = uncheckedScopedFOfPc (p_identifiers prog) (uncheckedCallDestination lInst)
+       in do
+        when (callee `Set.notMember` inlinable && optimizeWithSplit) $ do
+          -- Generate an extra 'dead-end' Vertex with an annotation containing the 
+          -- pre of the function in question quantified by associated logical variables
+          ghostVertex <- addVertex (segmentLabel s)
+          pre <- maybe (mkPre Expr.True) mkPre . fs'_pre <$> getFuncSpec callee
+          addAssertion ghostVertex $ quantifyEx pre
+          traceM ("original pre: " ++ show pre ++ " ex pre: " ++ show (quantifyEx pre))
+        -- One (1) or two (two) vertices, depending on inlinability / optimizeWithSplit
+        calleeVs <- getVerts (sf_pc callee)
+        for_ calleeVs $ \v ->
+          if callee `Set.member` inlinable
+            then addArc vFrom v insts ACNone . Just . ArcCall endPc $ v_label v
+            else addArc' vFrom v insts
   | Ret <- i_opCode endInst =
       let owner = sf_pc $ pcToFunOfProg prog ! endPc
-       in if owner `Set.notMember` inlinableLabels -- TODO: Don't think this ever triggers, try this.
+       in do
+        endVertex <- getUniqueVertex owner
+        if owner `Set.notMember` inlinableLabels -- TODO: Don't think this ever triggers, try this.
             then pure ()
             else
               let callers = callersOf rows owner
-                  returnAddrs = map (`moveLabel` sizeOfCall) callers
-               in forM_ returnAddrs $ \pc -> addArc endPc pc [lIinst] ACNone $ Just ArcRet
-  | JumpAbs <- i_pcUpdate endInst =
-      let lTo = Label (fromInteger (i_imm endInst))
-       in addArc' lFrom lTo (init insts)
-  | JumpRel <- i_pcUpdate endInst =
-      let lTo = moveLabel endPc (fromInteger (i_imm endInst))
-       in addArc' lFrom lTo (init insts)
-  | Jnz <- i_pcUpdate endInst =
-      let lTo1 = nextSegmentLabel s
-          lTo2 = moveLabel endPc (fromInteger (i_imm endInst))
-       in do
-            addArc lFrom lTo1 insts (ACJnz endPc False) Nothing
-            addArc lFrom lTo2 insts (ACJnz endPc True) Nothing
+               in do
+                returnVs <- mapM (getUniqueVertex . (`moveLabel` sizeOfCall)) callers
+                forM_ returnVs $ \returnV -> addArc endVertex returnV [lInst] ACNone $ Just ArcRet
+  | JumpAbs <- i_pcUpdate endInst = do
+      lTo <- getUniqueVertex $ Label (fromInteger (i_imm endInst))
+      addArc' vFrom lTo (init insts)
+  | JumpRel <- i_pcUpdate endInst = do
+      lTo <- getUniqueVertex $ moveLabel endPc (fromInteger (i_imm endInst))
+      addArc' vFrom lTo (init insts)
+  | Jnz <- i_pcUpdate endInst = do
+      lTo1 <- getUniqueVertex $ nextSegmentLabel s
+      lTo2 <- getUniqueVertex $ moveLabel endPc (fromInteger (i_imm endInst))
+      addArc vFrom lTo1 insts (ACJnz endPc False) Nothing
+      addArc vFrom lTo2 insts (ACJnz endPc True) Nothing
   | otherwise = do
-      let lTo = nextSegmentLabel s
-      addArc' lFrom lTo insts
+      lTo <- getUniqueVertex $ nextSegmentLabel s
+      addArc' vFrom lTo insts
  where
-  lFrom = segmentLabel s
-  lIinst@(endPc, endInst) = NonEmpty.last (coerce s)
+  lInst@(endPc, endInst) = NonEmpty.last (coerce s)
   insts = segmentInsts s
   inlinableLabels = Set.map sf_pc inlinable
 
@@ -220,10 +250,6 @@ addArcsFrom inlinable prog rows s optimizeWithSplit
     let lvars = gatherLogicalVariables expr in
     foldr Expr.ExistsFelt expr lvars
 
-  unspecifiedLabel :: Label -> Label
-  unspecifiedLabel = Label . (-2 -) . unLabel
-
--- TODO(the conditions are silly with the new model)
 addAssertions :: Set ScopedFunction -> Identifiers -> CFGBuildL ()
 addAssertions inlinable identifiers = do
   for_ (Map.toList identifiers) $ \(idName, def) -> case def of
@@ -231,16 +257,14 @@ addAssertions inlinable identifiers = do
       let func = ScopedFunction idName (fu_pc f)
        in do
             pre <- fs'_pre <$> getFuncSpec func
-            post <- fs'_post <$> getFuncSpec func
-            rets <- getRets idName
-            -- Handle functions that will end up with `True -> True` even with
-            -- inlining turned on, namely the ones that are (transitively) loopy.
+            post <- fs'_post <$> getFuncSpec func            
+            retVs <- mapM getUniqueVertex =<< getRets idName
             case (pre, post) of
               (Nothing, Nothing) ->
                 when (fu_pc f `Set.notMember` Set.map sf_pc inlinable) $
-                  for_ rets (`addAssertion` mkPost Expr.True)
-              _ -> for_ rets (`addAssertion` maybe (mkPost Expr.True) mkPost post)
-    ILabel pc -> do
+                  for_ retVs (`addAssertion` mkPost Expr.True)
+              _ -> for_ retVs (`addAssertion` maybe (mkPost Expr.True) mkPost post)
+    ILabel pc ->
       whenJustM (getInvariant idName) $ \inv ->
-        pc `addAssertion` mkInv inv
+        getUniqueVertex pc >>= (`addAssertion` mkInv inv)
     _ -> pure ()

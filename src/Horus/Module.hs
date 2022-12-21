@@ -25,7 +25,7 @@ import Data.Text qualified as Text (concat, cons, intercalate, length)
 import Lens.Micro (ix, (^.))
 import Text.Printf (printf)
 
-import Horus.CFGBuild (ArcCondition (..), Label (unLabel))
+import Horus.CFGBuild (ArcCondition (..), Label (unLabel), Vertex (v_label), getVerts)
 import Horus.CFGBuild.Runner (CFG (..))
 import Horus.CallStack (CallStack, calledFOfCallEntry, callerPcOfCallEntry, initialWithFunc, pop, push, stackTrace, top)
 import Horus.Expr (Expr, Ty (..), (.&&), (.==))
@@ -165,49 +165,53 @@ gatherModules :: CFG -> [(Function, ScopedName, FuncSpec)] -> ModuleL ()
 gatherModules cfg = traverse_ $ \(f, _, spec) -> gatherFromSource cfg f spec
 
 gatherFromSource :: CFG -> Function -> FuncSpec -> ModuleL ()
-gatherFromSource cfg function fSpec =
-  visit Map.empty (initialWithFunc (fu_pc function)) [] SBRich (fu_pc function) ACNone Nothing
+gatherFromSource cfg function fSpec = do
+  verticesAt <- liftF . getVerts $ fu_pc function
+  for_ verticesAt $ \v ->
+    visit Map.empty (initialWithFunc (fu_pc function)) [] SBRich v ACNone Nothing
  where
   visit ::
     Map (NonEmpty Label, Label) Bool ->
     CallStack ->
     [LabeledInst] ->
     SpecBuilder ->
-    Label ->
+    Vertex ->
     ArcCondition ->
     FInfo ->
     ModuleL ()
-  visit oracle callstack acc builder l arcCond f =
+  visit oracle callstack acc builder v arcCond f =
     visiting (stackTrace callstack', l) $ \alreadyVisited ->
       if alreadyVisited then visitLoop builder else visitLinear builder
    where
+    l = v_label v
+
     visitLoop SBRich = extractPlainBuilder fSpec >>= visitLoop
     visitLoop (SBPlain pre)
       | null assertions = throwError (ELoopNoInvariant l)
       | otherwise = emitPlain pre (Expr.and assertions)
 
     visitLinear SBRich
-      | onFinalNode = emitRich (fs_pre fSpec) (Expr.and $ map snd (cfg_assertions cfg ^. ix l))
-      | null assertions = visitArcs oracle' acc builder l
+      | onFinalNode = emitRich (fs_pre fSpec) (Expr.and $ map snd (cfg_assertions cfg ^. ix v))
+      | null assertions = visitArcs oracle' acc builder v
       | otherwise = extractPlainBuilder fSpec >>= visitLinear
     visitLinear (SBPlain pre)
-      | null assertions = visitArcs oracle' acc builder l
+      | null assertions = visitArcs oracle' acc builder v
       | otherwise = do
           emitPlain pre (Expr.and assertions)
-          visitArcs Map.empty [] (SBPlain (Expr.and assertions)) l
+          visitArcs Map.empty [] (SBPlain (Expr.and assertions)) v
 
     callstack' = case f of
       Nothing -> callstack
       Just (ArcCall fCallerPc fCalledF) -> push (fCallerPc, fCalledF) callstack
       Just ArcRet -> snd $ pop callstack
     oracle' = updateOracle arcCond callstack' oracle
-    assertions = trace ("querying at: " ++ show l ++ " forL " ++ show (cfg_assertions cfg ^. ix l)) $ map snd (cfg_assertions cfg ^. ix l)
-    onFinalNode = null (cfg_arcs cfg ^. ix l)
+    assertions = trace ("querying at: " ++ show l ++ " for " ++ show (cfg_assertions cfg ^. ix v)) $ map snd (cfg_assertions cfg ^. ix v)
+    onFinalNode = null (cfg_arcs cfg ^. ix v)
     emitPlain pre post = emitModule (Module (MSPlain (PlainSpec pre post)) acc oracle' (calledFOfCallEntry $ top callstack') (callstack', l))
     emitRich pre post = emitModule (Module (MSRich (FuncSpec pre post (fs_storage fSpec))) acc oracle' (calledFOfCallEntry $ top callstack') (callstack', l))
 
-    visitArcs newOracle acc' pre l' = do
-      let outArcs = cfg_arcs cfg ^. ix l'
+    visitArcs newOracle acc' pre v' = do
+      let outArcs = cfg_arcs cfg ^. ix v'
       unless (null outArcs) $
         let isCalledBy = (moveLabel (callerPcOfCallEntry $ top callstack') sizeOfCall ==)
             outArcs' = filter (\(dst, _, _, f') -> not (isRetArc f') || isCalledBy dst) outArcs
