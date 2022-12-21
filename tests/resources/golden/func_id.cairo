@@ -5,6 +5,7 @@ func main() {
     ret;
 }
 
+// @pre x > 13
 // @post $Return.res == x
 func id(x) -> (res: felt) {
     [ap] = [fp - 3], ap++;
