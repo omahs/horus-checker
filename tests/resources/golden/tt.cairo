@@ -1,8 +1,8 @@
-// @pre 41 == 41
 // @post [ap - 1] == 42
 func main() {
-    [ap] = 42, ap++;
     call id;
+    [ap] = 5, ap++;
+    [ap] = 6, ap++;
     ret;
 }
 

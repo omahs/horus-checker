@@ -1,3 +1,4 @@
+{-# LANGUAGE InstanceSigs #-}
 module Horus.CFGBuild
   ( CFGBuildL (..)
   , ArcCondition (..)
@@ -22,6 +23,7 @@ import Control.Monad.Except (MonadError (..))
 import Control.Monad.Free.Church (F, liftF)
 import Data.Coerce (coerce)
 import Data.Foldable (forM_, for_, toList)
+import Data.Functor ((<&>))
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.List.NonEmpty qualified as NonEmpty (last, reverse, (<|))
 import Data.Map ((!))
@@ -29,6 +31,7 @@ import Data.Map qualified as Map (toList)
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
+import Data.Traversable (for)
 import Lens.Micro.GHC ()
 
 import Horus.Expr (Expr (), Ty (..))
@@ -75,6 +78,7 @@ mkInv = (AInv,)
 data Vertex = Vertex
   { v_name :: Text
   , v_label :: Label
+  , v_isOptimizing :: Bool
   }
   deriving (Show)
 
@@ -82,13 +86,14 @@ instance Eq Vertex where
   (==) lhs rhs = v_name lhs == v_name rhs
 
 instance Ord Vertex where
+  compare :: Vertex -> Vertex -> Ordering
   compare lhs rhs = v_name lhs `compare` v_name rhs
 
 data ArcCondition = ACNone | ACJnz Label Bool
   deriving stock (Show)
 
 data CFGBuildF a
-  = AddVertex Label (Vertex -> a)
+  = AddVertex Label Bool (Vertex -> a)
   | AddArc Vertex Vertex [LabeledInst] ArcCondition FInfo a
   | AddAssertion Vertex (AnnotationType, Expr TBool) a
   | AskIdentifiers (Identifiers -> a)
@@ -114,7 +119,10 @@ liftF' :: CFGBuildF a -> CFGBuildL a
 liftF' = CFGBuildL . liftF
 
 addVertex :: Label -> CFGBuildL Vertex
-addVertex l = liftF' (AddVertex l id)
+addVertex l = liftF' (AddVertex l False id)
+
+addOptimizingVertex :: Label -> CFGBuildL Vertex
+addOptimizingVertex l = liftF' (AddVertex l True id)
 
 addArc :: Vertex -> Vertex -> [LabeledInst] -> ArcCondition -> FInfo -> CFGBuildL ()
 addArc vFrom vTo insts test f = liftF' (AddArc vFrom vTo insts test f ())
@@ -143,11 +151,14 @@ getRets name = liftF' (GetRets name id)
 getVerts :: Label -> CFGBuildL [Vertex]
 getVerts l = liftF' (GetVerts l id)
 
-getUniqueVertex :: Label -> CFGBuildL Vertex
-getUniqueVertex l = do
-  verts <- getVerts l
-  unless (length verts == 1) . throw $
-    "Requested a unique vertex at: " <> tShow l <> " but there are: " <> tShow (length verts)
+-- It is enforced that for any one PC, one can add at most a single salient vertex
+getSalientVertex :: Label -> CFGBuildL Vertex
+getSalientVertex l = do
+  verts <- filter (not . v_isOptimizing) <$> getVerts l
+  traceM ("verts here: " ++ show verts)
+  -- This can be at most one, so len <> 1 implies there are no vertices
+  unless (length verts == 1) . throw $ "No vertex with label: " <> tShow l
+  traceM "Survived."
   pure $ head verts
 
 throw :: Text -> CFGBuildL a
@@ -178,9 +189,16 @@ segmentInsts (Segment ne) = toList ne
 buildFrame :: Set ScopedFunction -> [LabeledInst] -> Program -> CFGBuildL ()
 buildFrame inlinable rows prog = do
   let segments = breakIntoSegments (programLabels rows $ p_identifiers prog) rows
-  for_ segments $ \s -> do
-    v <- addVertex (segmentLabel s)
-    addArcsFrom inlinable prog rows s v True
+  segmentsWithVerts <- for segments $ \s -> addVertex (segmentLabel s) <&> (s,)
+  for_ segmentsWithVerts $ \(s, v) -> addArcsFrom inlinable prog rows s v True
+  -- let segments = breakIntoSegments (programLabels rows $ p_identifiers prog) rows
+  -- vertices <- for segments $ \s -> addVertex (segmentLabel s) <&> (s,)
+  -- -- let segmentsWithPrecedingVertices = zip segments (Nothing : map Just vertices)
+  -- -- traceM ("segmentsWithPrecedingVertices: " ++ show segmentsWithPrecedingVertices)
+  -- for_ vertices $ \(s, v) -> addArcsFrom inlinable prog rows s v True
+  -- -- for_ segments $ \s -> do
+  -- --   v <- addVertex (segmentLabel s)
+  -- --   addArcsFrom inlinable prog rows s v True
 
 breakIntoSegments :: [Label] -> [LabeledInst] -> [Segment]
 breakIntoSegments _ [] = []
@@ -199,46 +217,75 @@ addArc' lFrom lTo insts = addArc lFrom lTo insts ACNone Nothing
 addArcsFrom :: Set ScopedFunction -> Program -> [LabeledInst] -> Segment -> Vertex -> Bool -> CFGBuildL ()
 addArcsFrom inlinable prog rows s vFrom optimizeWithSplit
   | Call <- i_opCode endInst =
-      -- let calleePc = uncheckedCallDestination lInst
-      let callee = uncheckedScopedFOfPc (p_identifiers prog) (uncheckedCallDestination lInst)
-       in do
-        when (callee `Set.notMember` inlinable && optimizeWithSplit) $ do
-          -- Generate an extra 'dead-end' Vertex with an annotation containing the 
-          -- pre of the function in question quantified by associated logical variables
-          ghostVertex <- addVertex (segmentLabel s)
-          pre <- maybe (mkPre Expr.True) mkPre . fs'_pre <$> getFuncSpec callee
-          addAssertion ghostVertex $ quantifyEx pre
-          traceM ("original pre: " ++ show pre ++ " ex pre: " ++ show (quantifyEx pre))
-        -- One (1) or two (two) vertices, depending on inlinability / optimizeWithSplit
-        calleeVs <- getVerts (sf_pc callee)
-        for_ calleeVs $ \v ->
-          if callee `Set.member` inlinable
-            then addArc vFrom v insts ACNone . Just . ArcCall endPc $ v_label v
-            else addArc' vFrom v insts
+    let callee = uncheckedScopedFOfPc (p_identifiers prog) (uncheckedCallDestination lInst)
+     in if callee `Set.member` inlinable
+          then do
+            salientCalleeV <- getSalientVertex (sf_pc callee)
+            addArc vFrom salientCalleeV insts ACNone . Just $ ArcCall endPc (sf_pc callee)
+          else do
+            salientLinearV <- getSalientVertex (nextSegmentLabel s)
+            addArc' vFrom salientLinearV insts
+            when optimizeWithSplit $ do
+              ghostV <- addOptimizingVertex (nextSegmentLabel s)
+              pre <- maybe (mkPre Expr.True) mkPre . fs'_pre <$> getFuncSpec callee
+              addAssertion ghostV $ quantifyEx pre
+              traceM ("original pre: " ++ show pre ++ " ex pre: " ++ show (quantifyEx pre))
+              addArc' vFrom ghostV insts
+
+              -- let ghostLabel = unspecifiedLabel $ segmentLabel s
+              --     func = uncheckedScopedFOfPc (p_identifiers prog) calleePc in do
+              
+
+      -- -- let calleePc = uncheckedCallDestination lInst
+      -- let callee = uncheckedScopedFOfPc (p_identifiers prog) (uncheckedCallDestination lInst)
+      --  in do
+      --   traceM ("vFrom: " ++ show mbVFrom ++ " segmentLabel: " ++ show s)
+      --   when (callee `Set.notMember` inlinable && optimizeWithSplit) $ do
+      --     -- Generate an extra 'dead-end' Vertex with an annotation containing the 
+      --     -- pre of the function in question quantified by associated logical variables
+      --     ghostVertex <- addVertex (segmentLabel s)
+      --     pre <- maybe (mkPre Expr.True) mkPre . fs'_pre <$> getFuncSpec callee
+      --     addAssertion ghostVertex $ quantifyEx pre
+      --     traceM ("original pre: " ++ show pre ++ " ex pre: " ++ show (quantifyEx pre))
+      --   -- One (1) or two (two) vertices, depending on inlinability / optimizeWithSplit
+      --   calleeVs <- getVerts (segmentLabel s)
+      --   traceM ("callee vs: " ++ show calleeVs)
+      --   for_ calleeVs $ \v ->
+      --     if callee `Set.member` inlinable
+      --       then addArc vFrom v insts ACNone . Just . ArcCall endPc $ v_label v
+      --       else addArc' vFrom v insts
   | Ret <- i_opCode endInst =
       let owner = sf_pc $ pcToFunOfProg prog ! endPc
        in do
-        endVertex <- getUniqueVertex owner
+        -- traceM "ret"
+        -- traceM ("owner: " ++ show owner)
+        endVertex <- getSalientVertex owner
         if owner `Set.notMember` inlinableLabels -- TODO: Don't think this ever triggers, try this.
             then pure ()
             else
               let callers = callersOf rows owner
                in do
-                returnVs <- mapM (getUniqueVertex . (`moveLabel` sizeOfCall)) callers
+                returnVs <- mapM (getSalientVertex . (`moveLabel` sizeOfCall)) callers
                 forM_ returnVs $ \returnV -> addArc endVertex returnV [lInst] ACNone $ Just ArcRet
   | JumpAbs <- i_pcUpdate endInst = do
-      lTo <- getUniqueVertex $ Label (fromInteger (i_imm endInst))
+      -- traceM "jumpAbs"
+      lTo <- getSalientVertex $ Label (fromInteger (i_imm endInst))
       addArc' vFrom lTo (init insts)
   | JumpRel <- i_pcUpdate endInst = do
-      lTo <- getUniqueVertex $ moveLabel endPc (fromInteger (i_imm endInst))
+      -- traceM "jump rel"
+      lTo <- getSalientVertex $ moveLabel endPc (fromInteger (i_imm endInst))
       addArc' vFrom lTo (init insts)
   | Jnz <- i_pcUpdate endInst = do
-      lTo1 <- getUniqueVertex $ nextSegmentLabel s
-      lTo2 <- getUniqueVertex $ moveLabel endPc (fromInteger (i_imm endInst))
+      -- traceM "jnz"
+      lTo1 <- getSalientVertex $ nextSegmentLabel s
+      lTo2 <- getSalientVertex $ moveLabel endPc (fromInteger (i_imm endInst))
       addArc vFrom lTo1 insts (ACJnz endPc False) Nothing
       addArc vFrom lTo2 insts (ACJnz endPc True) Nothing
   | otherwise = do
-      lTo <- getUniqueVertex $ nextSegmentLabel s
+      -- traceM "otherwise"
+      -- vs <- getVerts $ nextSegmentLabel s
+      -- traceM ("vfrom: " ++ show vFrom ++ " next: " ++ show vs ++ " nextSegLbl: " ++ show (nextSegmentLabel s))
+      lTo <- getSalientVertex $ nextSegmentLabel s
       addArc' vFrom lTo insts
  where
   lInst@(endPc, endInst) = NonEmpty.last (coerce s)
@@ -257,8 +304,8 @@ addAssertions inlinable identifiers = do
       let func = ScopedFunction idName (fu_pc f)
        in do
             pre <- fs'_pre <$> getFuncSpec func
-            post <- fs'_post <$> getFuncSpec func            
-            retVs <- mapM getUniqueVertex =<< getRets idName
+            post <- fs'_post <$> getFuncSpec func
+            retVs <- mapM getSalientVertex =<< getRets idName
             case (pre, post) of
               (Nothing, Nothing) ->
                 when (fu_pc f `Set.notMember` Set.map sf_pc inlinable) $
@@ -266,5 +313,5 @@ addAssertions inlinable identifiers = do
               _ -> for_ retVs (`addAssertion` maybe (mkPost Expr.True) mkPost post)
     ILabel pc ->
       whenJustM (getInvariant idName) $ \inv ->
-        getUniqueVertex pc >>= (`addAssertion` mkInv inv)
+        getSalientVertex pc >>= (`addAssertion` mkInv inv)
     _ -> pure ()

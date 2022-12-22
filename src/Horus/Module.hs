@@ -26,7 +26,7 @@ import Lens.Micro (ix, (^.))
 import Text.Printf (printf)
 
 import Horus.CFGBuild (ArcCondition (..), Label (unLabel), Vertex (v_label), getVerts)
-import Horus.CFGBuild.Runner (CFG (..))
+import Horus.CFGBuild.Runner (CFG (..), verticesLabelledBy)
 import Horus.CallStack (CallStack, calledFOfCallEntry, callerPcOfCallEntry, initialWithFunc, pop, push, stackTrace, top)
 import Horus.Expr (Expr, Ty (..), (.&&), (.==))
 import Horus.Expr qualified as Expr (and)
@@ -119,7 +119,7 @@ instance Show Error where
 
 data ModuleF a
   = EmitModule Module a
-  | forall b. Visiting (NonEmpty Label, Label) (Bool -> ModuleL b) (b -> a)
+  | forall b. Visiting (NonEmpty Label, Vertex) (Bool -> ModuleL b) (b -> a)
   | Throw Error
   | forall b. Catch (ModuleL b) (Error -> ModuleL b) (b -> a)
 
@@ -145,7 +145,7 @@ emitModule m = liftF' (EmitModule m ())
 'm' additionally takes a parameter that tells whether 'l' has been
 visited before.
 -}
-visiting :: (NonEmpty Label, Label) -> (Bool -> ModuleL b) -> ModuleL b
+visiting :: (NonEmpty Label, Vertex) -> (Bool -> ModuleL b) -> ModuleL b
 visiting l action = liftF' (Visiting l action id)
 
 throw :: Error -> ModuleL a
@@ -166,8 +166,9 @@ gatherModules cfg = traverse_ $ \(f, _, spec) -> gatherFromSource cfg f spec
 
 gatherFromSource :: CFG -> Function -> FuncSpec -> ModuleL ()
 gatherFromSource cfg function fSpec = do
-  verticesAt <- liftF . getVerts $ fu_pc function
-  for_ verticesAt $ \v ->
+  let verticesAtFuPc = verticesLabelledBy cfg $ fu_pc function
+  -- traceM ("verticesAtFuPc: " ++ show verticesAtFuPc)
+  for_ verticesAtFuPc $ \v ->
     visit Map.empty (initialWithFunc (fu_pc function)) [] SBRich v ACNone Nothing
  where
   visit ::
@@ -179,8 +180,8 @@ gatherFromSource cfg function fSpec = do
     ArcCondition ->
     FInfo ->
     ModuleL ()
-  visit oracle callstack acc builder v arcCond f =
-    visiting (stackTrace callstack', l) $ \alreadyVisited ->
+  visit oracle callstack acc builder v arcCond f = trace ("visiting: " ++ show v)
+    visiting (stackTrace callstack', v) $ \alreadyVisited ->
       if alreadyVisited then visitLoop builder else visitLinear builder
    where
     l = v_label v
@@ -213,7 +214,7 @@ gatherFromSource cfg function fSpec = do
     visitArcs newOracle acc' pre v' = do
       let outArcs = cfg_arcs cfg ^. ix v'
       unless (null outArcs) $
-        let isCalledBy = (moveLabel (callerPcOfCallEntry $ top callstack') sizeOfCall ==)
+        let isCalledBy = (moveLabel (callerPcOfCallEntry $ top callstack') sizeOfCall ==) . v_label
             outArcs' = filter (\(dst, _, _, f') -> not (isRetArc f') || isCalledBy dst) outArcs
          in for_ outArcs' $ \(lTo, insts, test, f') ->
               visit newOracle callstack' (acc' <> insts) pre lTo test f'

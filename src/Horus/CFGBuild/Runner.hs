@@ -3,13 +3,14 @@ module Horus.CFGBuild.Runner
   , interpret
   , runImpl
   , cfgArcs
+  , verticesLabelledBy
   )
 where
 
 import Control.Monad.Except (ExceptT, catchError, runExceptT, throwError)
 import Control.Monad.Free.Church (iterM)
 import Control.Monad.Reader (ReaderT, ask, asks, runReaderT)
-import Control.Monad.State (State, runState, get)
+import Control.Monad.State (State, get, gets, runState)
 import Data.List (union)
 import Data.Map (Map)
 import Data.Map qualified as Map (empty)
@@ -19,10 +20,11 @@ import Lens.Micro (Lens', at, (&), (^.), _Just)
 import Lens.Micro.GHC ()
 import Lens.Micro.Mtl ((%=), (<%=))
 
-import Horus.CFGBuild (ArcCondition (..), CFGBuildF (..), CFGBuildL (..), LabeledInst, AnnotationType, Vertex (..))
+import Horus.CFGBuild (AnnotationType, ArcCondition (..), CFGBuildF (..), CFGBuildL (..), Label, LabeledInst, Vertex (..))
 import Horus.ContractInfo (ContractInfo (..))
 import Horus.Expr (Expr, Ty (..))
 import Horus.FunctionAnalysis (FInfo)
+import Debug.Trace (traceM)
 
 type Impl = ReaderT ContractInfo (ExceptT Text (State CFG))
 
@@ -49,14 +51,26 @@ cfgAssertions lMod g = fmap (\x -> g{cfg_assertions = x}) (lMod (cfg_assertions 
 cfgVertexCounter :: Lens' CFG Int
 cfgVertexCounter lMod g = fmap (\x -> g{cfg_vertexCounter = x}) (lMod (cfg_vertexCounter g))
 
+verticesLabelledBy :: CFG -> Label -> [Vertex]
+verticesLabelledBy cfg l = [v | v <- cfg_vertices cfg, v_label v == l]
+
 interpret :: CFGBuildL a -> Impl a
 interpret = iterM exec . runCFGBuildL
  where
-  exec (AddVertex l cont) = do
+  exec (AddVertex l isOptimizing cont) = do
     freshVal <- cfgVertexCounter <%= succ
-    let newVertex = Vertex (Text.pack (show freshVal)) l
-    cfgVertices %= ([newVertex] `union`)
-    cont newVertex
+    let newVertex = Vertex (Text.pack (show freshVal)) l isOptimizing
+    vs <- gets cfg_vertices
+    traceM ("new vertex: " ++ show newVertex ++ " other: " ++ show [vert | vert <- vs, v_label vert == l, (not . v_isOptimizing) vert])
+    -- Currently, the design is such that it is convenient to be able to distinguish
+    -- 'the unique vertex the entire codebase relies on' from vertices that exist
+    -- with the same label for one reason or the other, e.g. optimisation purposes.
+    -- Ideally, vertices would be treated uniformally, regardless of their raison d'etre,
+    -- removing the need for enforcing invariants like this.
+    if (not . v_isOptimizing) newVertex
+      && (not . null) [vert | vert <- vs, v_label vert == l, (not . v_isOptimizing) vert]
+      then throwError "At most one salient Vertex is allowed per PC."
+      else cfgVertices %= ([newVertex] `union`) >> cont newVertex
   exec (AddArc lFrom lTo insts test isF cont) = cfgArcs . at lFrom %= doAdd >> cont
    where
     doAdd mArcs = Just ((lTo, insts, test, isF) : mArcs ^. _Just)
@@ -76,7 +90,7 @@ interpret = iterM exec . runCFGBuildL
     ci_getRets ci name >>= cont
   exec (GetVerts l cont) = do
     cfg <- get
-    cont [v | v <- cfg_vertices cfg, v_label v == l]
+    cont $ verticesLabelledBy cfg l
   exec (Throw t) = throwError t
   exec (Catch m handler cont) = catchError (interpret m) (interpret . handler) >>= cont
 
