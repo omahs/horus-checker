@@ -47,8 +47,12 @@ toFuncSpec FuncSpec'{..} =
 instance FromJSON FuncSpec where
   parseJSON = withObject "FuncSpec" $ \v ->
     FuncSpec
-      <$> fmap elimHSExpr (v .: "pre")
-      <*> fmap elimHSExpr (v .: "post")
+      <$> do
+        pre <- v .: "pre"
+        fmap elimHSExpr (pre .: "sexpr")
+      <*> do
+        post <- v .: "post"
+        fmap elimHSExpr (post .: "sexpr")
       <*> (Storage.parse =<< (v .: "storage_update"))
 
 elimHSExpr :: HSExpr a -> Expr a
