@@ -64,6 +64,7 @@ import Horus.SW.ScopedName qualified as ScopedName (fromText)
 import Horus.SW.Storage (Storage)
 import Horus.SW.Storage qualified as Storage (equivalenceExpr)
 import Horus.Util (enumerate, tShow, whenJust, whenJustM)
+import Debug.Trace (traceM)
 
 data MemoryVariable = MemoryVariable
   { mv_varName :: Text
@@ -262,9 +263,12 @@ encodePlainSpec mdl PlainSpec{..} = do
 
   let instrs = m_prog mdl
   for_ (zip [0 ..] instrs) $ \(idx, instr) ->
-    mkInstructionConstraints instr (getNextPcInlinedWithFallback instrs idx) (m_jnzOracle mdl)
+    mkInstructionConstraints
+      instr (getNextPcInlinedWithFallback instrs idx) (m_isOptimizing mdl) (m_jnzOracle mdl)
 
-  expect =<< prepare' apEnd fp ps_post
+  -- I would rather shadow this with the name 'fp', but our setup complains :(
+  fpPostExecution <- getFp
+  expect =<< prepare' apEnd fpPostExecution ps_post
 
   whenJust (nonEmpty (m_prog mdl)) $ \neInsts -> do
     mkApConstraints apEnd neInsts
@@ -330,12 +334,12 @@ withExecutionCtx ctx action = do
   pop
   pure res
 
-mkInstructionConstraints :: LabeledInst -> Label -> Map (NonEmpty Label, Label) Bool -> CairoSemanticsL ()
-mkInstructionConstraints lInst@(pc, Instruction{..}) nextPc jnzOracle = do
+mkInstructionConstraints :: LabeledInst -> Label -> Bool -> Map (NonEmpty Label, Label) Bool -> CairoSemanticsL ()
+mkInstructionConstraints lInst@(pc, Instruction{..}) nextPc isOptimizing jnzOracle = do
   fp <- getFp
   dst <- prepare pc fp (memory (regToVar i_dstRegister + fromInteger i_dstOffset))
   case i_opCode of
-    Call -> mkCallConstraints pc nextPc fp =<< getCallee lInst
+    Call -> mkCallConstraints pc nextPc fp isOptimizing =<< getCallee lInst
     AssertEqual -> getRes fp lInst >>= \res -> assert (res .== dst)
     Nop -> do
       stackTrace <- getOracle
@@ -345,28 +349,45 @@ mkInstructionConstraints lInst@(pc, Instruction{..}) nextPc jnzOracle = do
         Nothing -> pure ()
     Ret -> pop
 
-mkCallConstraints :: Label -> Label -> Expr TFelt -> ScopedFunction -> CairoSemanticsL ()
-mkCallConstraints pc nextPc fp f = do
+mkCallConstraints :: Label -> Label -> Expr TFelt -> Bool -> ScopedFunction -> CairoSemanticsL ()
+mkCallConstraints pc nextPc fp isOptimizing f = do
   calleeFp <- withExecutionCtx stackFrame getFp
   nextAp <- prepare pc calleeFp (Vars.fp .== Vars.ap + 2)
   saveOldFp <- prepare pc fp (memory Vars.ap .== Vars.fp)
   setNextPc <- prepare pc fp (memory (Vars.ap + 1) .== fromIntegral (unLabel nextPc))
   assert (TSMT.and [nextAp, saveOldFp, setNextPc])
   push stackFrame
-  canInline <- isInlinable f
-  unless canInline $ do
-    (FuncSpec pre post storage) <- getFuncSpec f <&> toFuncSpec
-    let pre' = suffixLogicalVariables lvarSuffix pre
-        post' = suffixLogicalVariables lvarSuffix post
-    removedStorage <- storageRemoval pre'
-    preparedPre <- prepare calleePc calleeFp removedStorage
-    -- preparedPreCheckPoint <- prepareCheckPoint calleePc calleeFp =<< storageRemoval pre'
-    dbgStrg <- traverseStorage (prepare nextPc calleeFp) storage
-    updateStorage dbgStrg
-    pop
-    preparedPost <- prepare nextPc calleeFp =<< storageRemoval =<< storageRemoval post'
-    -- checkPoint preparedPreCheckPoint
-    assert (preparedPre .&& preparedPost)
+  -- We need only a part of the call instruction's semantics for optimizing modules.
+  -- This is of course optimization-specific and might need a more robust approach
+  -- and better naming scheme should more refinements be done in the future.
+  traceM ("isOptimizing: " ++ show isOptimizing)
+  unless isOptimizing $ do
+    traceM ("encoding semantics of the call -- isOptimizing" ++ show isOptimizing)
+    -- This is reachable unless the module is optimizing, in which case the precondition
+    -- of the function is necessarily the last thing being checked; as such, the semantics
+    -- of the function being invoked must not be considered.
+    -- This indeed does feel out of place but there is no machinery for optimization passes
+    -- or anything of the sort.
+    canInline <- isInlinable f
+    unless canInline $ do
+      (FuncSpec pre post storage) <- getFuncSpec f <&> toFuncSpec
+      let pre' = suffixLogicalVariables lvarSuffix pre
+          post' = suffixLogicalVariables lvarSuffix post
+      preparedPre <- prepare nextPc calleeFp =<< storageRemoval pre'
+      traceM ("calleePc: " ++ show calleePc ++ " nextPc: " ++ show nextPc)
+      preparedPreDbg <- prepare calleePc calleeFp =<< storageRemoval pre'
+      traceM ("preparedPreDbg: " ++ show preparedPreDbg ++ " preparedPre: " ++ show preparedPre)
+
+      -- preparedPreDbg <- prepare calleePc calleeFp =<< storageRemoval pre'
+
+      -- preparedPreCheckPoint <- prepareCheckPoint calleePc calleeFp =<< storageRemoval pre'
+      dbgStrg <- traverseStorage (prepare nextPc calleeFp) storage
+      updateStorage dbgStrg
+      pop
+      preparedPost <- prepare nextPc calleeFp =<< storageRemoval =<< storageRemoval post'
+      -- checkPoint preparedPreCheckPoint
+      -- TODO(maybe assert pre dbg?)
+      assert (preparedPre .&& preparedPost)
  where
   lvarSuffix = "+" <> tShowLabel pc
   calleePc = sf_pc f

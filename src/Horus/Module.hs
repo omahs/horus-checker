@@ -25,7 +25,7 @@ import Data.Text qualified as Text (concat, cons, intercalate, length)
 import Lens.Micro (ix, (^.))
 import Text.Printf (printf)
 
-import Horus.CFGBuild (ArcCondition (..), Label (unLabel), Vertex (v_label), getVerts)
+import Horus.CFGBuild (ArcCondition (..), Label (unLabel), Vertex (v_label, v_isOptimizing), getVerts)
 import Horus.CFGBuild.Runner (CFG (..), verticesLabelledBy)
 import Horus.CallStack (CallStack, calledFOfCallEntry, callerPcOfCallEntry, initialWithFunc, pop, push, stackTrace, top)
 import Horus.Expr (Expr, Ty (..), (.&&), (.==))
@@ -47,6 +47,7 @@ data Module = Module
   , m_jnzOracle :: Map (NonEmpty Label, Label) Bool
   , m_calledF :: Label
   , m_lastPc :: (CallStack, Label)
+  , m_isOptimizing :: Bool
   }
   deriving stock (Show)
 
@@ -98,7 +99,7 @@ descrOfOracle oracle =
 -- While we do have the name of the called function in Module, it does not contain
 -- the rest of the labels.
 nameOfModule :: Identifiers -> Module -> Text
-nameOfModule idents (Module spec prog oracle _ _) =
+nameOfModule idents (Module spec prog oracle _ _ _) =
   case beginOfModule prog of
     Nothing -> "empty: " <> pprExpr post
     Just label ->
@@ -208,8 +209,13 @@ gatherFromSource cfg function fSpec = do
     oracle' = updateOracle arcCond callstack' oracle
     assertions = trace ("querying at: " ++ show l ++ " for " ++ show (cfg_assertions cfg ^. ix v)) $ map snd (cfg_assertions cfg ^. ix v)
     onFinalNode = null (cfg_arcs cfg ^. ix v)
-    emitPlain pre post = emitModule (Module (MSPlain (PlainSpec pre post)) acc oracle' (calledFOfCallEntry $ top callstack') (callstack', l))
-    emitRich pre post = emitModule (Module (MSRich (FuncSpec pre post (fs_storage fSpec))) acc oracle' (calledFOfCallEntry $ top callstack') (callstack', l))
+    emitPlain pre post = emit . MSPlain $ PlainSpec pre post
+    emitRich pre post = emit . MSRich $ FuncSpec pre post $ fs_storage fSpec
+
+    emit spec =
+      emitModule (
+        Module spec acc oracle' (calledFOfCallEntry $ top callstack')
+               (callstack', l) $ v_isOptimizing v)
 
     visitArcs newOracle acc' pre v' = do
       let outArcs = cfg_arcs cfg ^. ix v'
