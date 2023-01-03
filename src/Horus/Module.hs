@@ -181,7 +181,7 @@ gatherFromSource cfg function fSpec = do
     ArcCondition ->
     FInfo ->
     ModuleL ()
-  visit oracle callstack acc builder v arcCond f = trace ("visiting: " ++ show v)
+  visit oracle callstack acc builder v arcCond f =
     visiting (stackTrace callstack', v) $ \alreadyVisited ->
       if alreadyVisited then visitLoop builder else visitLinear builder
    where
@@ -207,7 +207,7 @@ gatherFromSource cfg function fSpec = do
       Just (ArcCall fCallerPc fCalledF) -> push (fCallerPc, fCalledF) callstack
       Just ArcRet -> snd $ pop callstack
     oracle' = updateOracle arcCond callstack' oracle
-    assertions = trace ("querying at: " ++ show l ++ " for " ++ show (cfg_assertions cfg ^. ix v)) $ map snd (cfg_assertions cfg ^. ix v)
+    assertions = map snd (cfg_assertions cfg ^. ix v)
     onFinalNode = null (cfg_arcs cfg ^. ix v)
     emitPlain pre post = emit . MSPlain $ PlainSpec pre post
     emitRich pre post = emit . MSRich $ FuncSpec pre post $ fs_storage fSpec

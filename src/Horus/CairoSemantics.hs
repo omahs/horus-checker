@@ -210,6 +210,11 @@ prepareCheckPoint pc fp expr = do
   ap <- getAp pc
   exMemoryRemoval (substitute "fp" fp (substitute "ap" ap expr))
 
+prepareCheckPoint' ::
+  Expr TFelt -> Expr TFelt -> Expr TBool -> CairoSemanticsL ([MemoryVariable] -> Expr TBool)
+prepareCheckPoint' ap fp expr = do
+  exMemoryRemoval (substitute "fp" fp (substitute "ap" ap expr))
+
 encodeApTracking :: Text -> ApTracking -> Expr TFelt
 encodeApTracking traceDescr ApTracking{..} =
   Expr.const ("ap!" <> traceDescr <> "@" <> tShow at_group) + fromIntegral at_offset
@@ -268,7 +273,14 @@ encodePlainSpec mdl PlainSpec{..} = do
 
   -- I would rather shadow this with the name 'fp', but our setup complains :(
   fpPostExecution <- getFp
-  expect =<< prepare' apEnd fpPostExecution ps_post
+  -- expect =<< prepare' apEnd fpPostExecution ps_post
+  traceM ("current ps_post: " ++ show ps_post)
+  transformed <- prepare' apEnd fpPostExecution ps_post
+  traceM ("prepared ps_post: " ++ show transformed)
+  exTransformed <- prepareCheckPoint' apEnd fpPostExecution ps_post
+  traceM ("exTransformed ps_post: " ++ show (exTransformed []))
+  -- expect =<< prepare' apEnd fpPostExecution =<< prepare' apEnd fpPostExecution ps_post
+  expect =<< prepare' apEnd fpPostExecution (exTransformed [])
 
   whenJust (nonEmpty (m_prog mdl)) $ \neInsts -> do
     mkApConstraints apEnd neInsts
