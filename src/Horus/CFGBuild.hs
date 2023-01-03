@@ -155,10 +155,10 @@ getVerts l = liftF' (GetVerts l id)
 getSalientVertex :: Label -> CFGBuildL Vertex
 getSalientVertex l = do
   verts <- filter (not . v_isOptimizing) <$> getVerts l
-  traceM ("verts here: " ++ show verts)
+  -- traceM ("verts here: " ++ show verts)
   -- This can be at most one, so len <> 1 implies there are no vertices
   unless (length verts == 1) . throw $ "No vertex with label: " <> tShow l
-  traceM "Survived."
+  -- traceM "Survived."
   pure $ head verts
 
 throw :: Text -> CFGBuildL a
@@ -223,6 +223,7 @@ addArcsFrom inlinable prog rows s vFrom optimizeWithSplit
             salientCalleeV <- getSalientVertex (sf_pc callee)
             addArc vFrom salientCalleeV insts ACNone . Just $ ArcCall endPc (sf_pc callee)
           else do
+            traceM ("calle here: " ++ show callee)
             salientLinearV <- getSalientVertex (nextSegmentLabel s)
             addArc' vFrom salientLinearV insts
             when optimizeWithSplit $ do
