@@ -99,13 +99,15 @@ descrOfOracle oracle =
 -- While we do have the name of the called function in Module, it does not contain
 -- the rest of the labels.
 nameOfModule :: Identifiers -> Module -> Text
-nameOfModule idents (Module spec prog oracle _ _ _) =
+nameOfModule idents (Module spec prog oracle _ _ isOptimizing) =
   case beginOfModule prog of
     Nothing -> "empty: " <> pprExpr post
     Just label ->
       let (prefix, labelsDigest) = normalizedName $ labelNamesOfPc idents label
           noPrefix = Text.length prefix == 0
-       in Text.concat [prefix, if noPrefix then "" else ".", labelsDigest, descrOfOracle oracle]
+       in Text.concat [
+            prefix, if noPrefix then "" else ".", labelsDigest, descrOfOracle oracle,
+            if isOptimizing then "X" else ""]
  where
   post = case spec of MSRich fs -> fs_post fs; MSPlain ps -> ps_post ps
 

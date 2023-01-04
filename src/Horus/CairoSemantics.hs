@@ -64,7 +64,7 @@ import Horus.SW.ScopedName qualified as ScopedName (fromText)
 import Horus.SW.Storage (Storage)
 import Horus.SW.Storage qualified as Storage (equivalenceExpr)
 import Horus.Util (enumerate, tShow, whenJust, whenJustM)
-import Debug.Trace (traceM)
+import Debug.Trace (traceM, trace)
 
 data MemoryVariable = MemoryVariable
   { mv_varName :: Text
@@ -190,7 +190,7 @@ substitute :: Text -> Expr TFelt -> Expr a -> Expr a
 substitute what forWhat = Expr.canonicalize . Expr.transformId step
  where
   step :: Expr b -> Expr b
-  step (Expr.cast @TFelt -> CastOk (Expr.Fun name)) | name == what = forWhat
+  step (Expr.cast @TFelt -> CastOk (Expr.Fun name)) | name == what = trace ("name == what " ++ show name ++ " " ++ show what ++ " forwhat: " ++ show forWhat) forWhat
   step e = e
 
 {- | Prepare the expression for usage in the model.
@@ -274,13 +274,20 @@ encodePlainSpec mdl PlainSpec{..} = do
   -- I would rather shadow this with the name 'fp', but our setup complains :(
   fpPostExecution <- getFp
   -- expect =<< prepare' apEnd fpPostExecution ps_post
+  traceM ("fpPostExe: " ++ show fpPostExecution)
   traceM ("current ps_post: " ++ show ps_post)
   transformed <- prepare' apEnd fpPostExecution ps_post
   traceM ("prepared ps_post: " ++ show transformed)
+  -- traceM ("manual subst: " ++ show (substitute "fp" fp (substitute "ap" apEnd ps_post)))
+  traceM ("manual subst: " ++ show (substitute "fp" (Expr.const "ABC!")
+                                                    (Expr.ExistsFelt "$n" (Expr.Fun "fp" .== Expr.Fun "fpewre" :: Expr TBool))))
   exTransformed <- prepareCheckPoint' apEnd fpPostExecution ps_post
   traceM ("exTransformed ps_post: " ++ show (exTransformed []))
   -- expect =<< prepare' apEnd fpPostExecution =<< prepare' apEnd fpPostExecution ps_post
-  expect =<< prepare' apEnd fpPostExecution (exTransformed [])
+  -- expect =<< prepare' apEnd fpPostExecution (exTransformed mvars)
+  tAndP <- prepare' apEnd fpPostExecution (exTransformed [])
+  traceM ("transformed AND prepared: " ++ show tAndP)
+  expect tAndP
 
   whenJust (nonEmpty (m_prog mdl)) $ \neInsts -> do
     mkApConstraints apEnd neInsts
