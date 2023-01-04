@@ -10,12 +10,12 @@ func f0(x: felt) -> (res: felt) {
 // @pre x == $n
 // @post $Return.res == $n + 3
 func f1(x: felt) -> (res: felt) {
-    let (y) = inc(x + 1);
+    let (y) = inc(5);
     return (res=y);
 }
 
 // @declare $n : felt
-// @pre x == $n
+// @pre x == $n and x == 4
 // @post $Return.res == $n + 1
 func inc(x: felt) -> (res: felt) {
     return (res=x + 1);

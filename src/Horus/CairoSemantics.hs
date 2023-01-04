@@ -1,5 +1,6 @@
 {-# LANGUAGE LambdaCase #-}
 {-# OPTIONS_GHC -Wno-unused-top-binds #-}
+{-# OPTIONS_GHC -Wno-unused-imports #-}
 
 module Horus.CairoSemantics
   ( encodeModule
@@ -190,7 +191,9 @@ substitute :: Text -> Expr TFelt -> Expr a -> Expr a
 substitute what forWhat = Expr.canonicalize . Expr.transformId step
  where
   step :: Expr b -> Expr b
-  step (Expr.cast @TFelt -> CastOk (Expr.Fun name)) | name == what = trace ("name == what " ++ show name ++ " " ++ show what ++ " forwhat: " ++ show forWhat) forWhat
+  step (Expr.cast @TFelt -> CastOk (Expr.Fun name)) | name == what = forWhat
+  -- step e@(Expr.cast @TFelt -> CastOk (Expr.Fun name)) | name /= what = trace ("stepping e <NOT>: " ++ show e ++ " name: " ++ show name ++ " what: " ++ show what) forWhat
+  step (Expr.cast @TBool -> CastOk (Expr.ExistsFelt name expr)) = Expr.ExistsFelt name (substitute what forWhat expr)
   step e = e
 
 {- | Prepare the expression for usage in the model.
@@ -213,6 +216,7 @@ prepareCheckPoint pc fp expr = do
 prepareCheckPoint' ::
   Expr TFelt -> Expr TFelt -> Expr TBool -> CairoSemanticsL ([MemoryVariable] -> Expr TBool)
 prepareCheckPoint' ap fp expr = do
+  traceM ("prepareCheckpoint' called on: " ++ show expr)
   exMemoryRemoval (substitute "fp" fp (substitute "ap" ap expr))
 
 encodeApTracking :: Text -> ApTracking -> Expr TFelt
@@ -274,20 +278,22 @@ encodePlainSpec mdl PlainSpec{..} = do
   -- I would rather shadow this with the name 'fp', but our setup complains :(
   fpPostExecution <- getFp
   -- expect =<< prepare' apEnd fpPostExecution ps_post
-  traceM ("fpPostExe: " ++ show fpPostExecution)
+  -- traceM ("fpPostExe: " ++ show fpPostExecution)
   traceM ("current ps_post: " ++ show ps_post)
-  transformed <- prepare' apEnd fpPostExecution ps_post
-  traceM ("prepared ps_post: " ++ show transformed)
-  -- traceM ("manual subst: " ++ show (substitute "fp" fp (substitute "ap" apEnd ps_post)))
-  traceM ("manual subst: " ++ show (substitute "fp" (Expr.const "ABC!")
-                                                    (Expr.ExistsFelt "$n" (Expr.Fun "fp" .== Expr.Fun "fpewre" :: Expr TBool))))
+  -- transformed <- prepare' apEnd fpPostExecution ps_post
+  -- traceM ("prepared ps_post: " ++ show transformed)
+  -- traceM ("manual subst: " ++ show (substitute "fp" fpPostExecution (substitute "ap" apEnd ps_post)))
+  -- traceM ("manual subst: " ++ show (substitute "fp" (Expr.const "ABC!")
+  --                                                   (Expr.ExistsFelt "$n" (Expr.Fun "fp" .== Expr.Fun "fpewre" :: Expr TBool))))
   exTransformed <- prepareCheckPoint' apEnd fpPostExecution ps_post
-  traceM ("exTransformed ps_post: " ++ show (exTransformed []))
+  traceM ("exTransformed: " ++ show (exTransformed []))
+  expect $ exTransformed []
+  -- traceM ("exTransformed ps_post: " ++ show (exTransformed []))
   -- expect =<< prepare' apEnd fpPostExecution =<< prepare' apEnd fpPostExecution ps_post
   -- expect =<< prepare' apEnd fpPostExecution (exTransformed mvars)
-  tAndP <- prepare' apEnd fpPostExecution (exTransformed [])
-  traceM ("transformed AND prepared: " ++ show tAndP)
-  expect tAndP
+  -- tAndP <- prepare' apEnd fpPostExecution (exTransformed [])
+  -- traceM ("transformed AND prepared: " ++ show tAndP)
+  -- expect tAndP
 
   whenJust (nonEmpty (m_prog mdl)) $ \neInsts -> do
     mkApConstraints apEnd neInsts
@@ -295,6 +301,7 @@ encodePlainSpec mdl PlainSpec{..} = do
 
 exMemoryRemoval :: Expr TBool -> CairoSemanticsL ([MemoryVariable] -> Expr TBool)
 exMemoryRemoval expr = do
+  traceM ("exMemoryRemoval called on: " ++ show expr)
   (expr', localMemVars, _referencesLocals) <- unsafeMemoryRemoval expr
   pure (intro expr' localMemVars)
  where

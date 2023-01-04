@@ -1,7 +1,7 @@
 // @pre 41 == 41
-// @post [ap - 1] == 43
+// @post [ap - 1] == 40
 func main() {
-    [ap] = 42, ap++;
+    [ap] = 40, ap++;
     call id;
     ret;
 }
