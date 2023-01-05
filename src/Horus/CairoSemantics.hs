@@ -219,6 +219,16 @@ prepareCheckPoint' ap fp expr = do
   traceM ("prepareCheckpoint' called on: " ++ show expr)
   exMemoryRemoval (substitute "fp" fp (substitute "ap" ap expr))
 
+-- preparePost ::
+--   Expr TFelt -> Expr TFelt -> Expr TBool -> Bool -> CairoSemanticsL ([MemoryVariable] -> Expr TBool)
+-- preparePost ap fp expr isOptimizing = do
+--   traceM ("preparePost called on: " ++ show expr)
+--   if isOptimizing
+--     then exMemoryRemoval (substitute "fp" fp (substitute "ap" ap expr))
+--     else case expr of
+--       ExistsFelt _ expr' -> prepare' ap fp expr'
+--       _ -> prepare' ap fp expr
+
 encodeApTracking :: Text -> ApTracking -> Expr TFelt
 encodeApTracking traceDescr ApTracking{..} =
   Expr.const ("ap!" <> traceDescr <> "@" <> tShow at_group) + fromIntegral at_offset
@@ -277,23 +287,10 @@ encodePlainSpec mdl PlainSpec{..} = do
 
   -- I would rather shadow this with the name 'fp', but our setup complains :(
   fpPostExecution <- getFp
-  -- expect =<< prepare' apEnd fpPostExecution ps_post
-  -- traceM ("fpPostExe: " ++ show fpPostExecution)
   traceM ("current ps_post: " ++ show ps_post)
-  -- transformed <- prepare' apEnd fpPostExecution ps_post
-  -- traceM ("prepared ps_post: " ++ show transformed)
-  -- traceM ("manual subst: " ++ show (substitute "fp" fpPostExecution (substitute "ap" apEnd ps_post)))
-  -- traceM ("manual subst: " ++ show (substitute "fp" (Expr.const "ABC!")
-  --                                                   (Expr.ExistsFelt "$n" (Expr.Fun "fp" .== Expr.Fun "fpewre" :: Expr TBool))))
-  exTransformed <- prepareCheckPoint' apEnd fpPostExecution ps_post
-  traceM ("exTransformed: " ++ show (exTransformed []))
-  expect $ exTransformed []
-  -- traceM ("exTransformed ps_post: " ++ show (exTransformed []))
-  -- expect =<< prepare' apEnd fpPostExecution =<< prepare' apEnd fpPostExecution ps_post
-  -- expect =<< prepare' apEnd fpPostExecution (exTransformed mvars)
-  -- tAndP <- prepare' apEnd fpPostExecution (exTransformed [])
-  -- traceM ("transformed AND prepared: " ++ show tAndP)
-  -- expect tAndP
+  post <- prepareCheckPoint' apEnd fpPostExecution ps_post
+  traceM ("exTransformed: " ++ show (post []))
+  expect $ post []
 
   whenJust (nonEmpty (m_prog mdl)) $ \neInsts -> do
     mkApConstraints apEnd neInsts
