@@ -76,4 +76,4 @@
 (assert (= (mod (+ MEM!6 1) prime) MEM!7))
 (assert (< (mod (+ ap!<root>@0 1) prime) ap!<root>@1))
 (assert true)
-(assert (not (exists (($n Int)) (and (<= 0 $n) (< $n prime) (= MEM!7 (mod (+ $n 3) prime))))))
+(assert (not (= MEM!7 (mod (+ $n 3) prime))))

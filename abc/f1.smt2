@@ -63,4 +63,4 @@
 (assert (and (= fp!<9=inc/root> (mod (+ ap!<root>@2 3) prime)) (= MEM!3 fp!<root>) (= MEM!4 11)))
 (assert (and (= MEM!5 $n+9) (= MEM!6 (mod (+ $n+9 1) prime))))
 (assert (< (mod (+ ap!<root>@2 1) prime) ap!<root>@3))
-(assert (not (exists (($n Int)) (and (<= 0 $n) (< $n prime) (= MEM!6 (mod (+ $n 3) prime))))))
+(assert (not (= MEM!6 (mod (+ $n 3) prime))))

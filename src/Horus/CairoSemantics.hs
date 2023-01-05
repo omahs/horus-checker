@@ -24,7 +24,7 @@ import Data.Set qualified as Set (Set, member)
 import Data.Text (Text)
 
 import Horus.CallStack as CS (CallEntry, CallStack)
-import Horus.Expr (Cast (..), Expr ((:+)), Ty (..), (.&&), (./=), (.<), (.<=), (.==), (.=>), (.||))
+import Horus.Expr (Cast (..), Expr ((:+), ExistsFelt), Ty (..), (.&&), (./=), (.<), (.<=), (.==), (.=>), (.||))
 import Horus.Expr qualified as Expr
 import Horus.Expr qualified as TSMT
 import Horus.Expr.Util (gatherLogicalVariables, suffixLogicalVariables)
@@ -216,18 +216,22 @@ prepareCheckPoint pc fp expr = do
 prepareCheckPoint' ::
   Expr TFelt -> Expr TFelt -> Expr TBool -> CairoSemanticsL ([MemoryVariable] -> Expr TBool)
 prepareCheckPoint' ap fp expr = do
-  traceM ("prepareCheckpoint' called on: " ++ show expr)
+  -- traceM ("prepareCheckpoint' called on: " ++ show expr)
   exMemoryRemoval (substitute "fp" fp (substitute "ap" ap expr))
 
--- preparePost ::
---   Expr TFelt -> Expr TFelt -> Expr TBool -> Bool -> CairoSemanticsL ([MemoryVariable] -> Expr TBool)
--- preparePost ap fp expr isOptimizing = do
---   traceM ("preparePost called on: " ++ show expr)
---   if isOptimizing
---     then exMemoryRemoval (substitute "fp" fp (substitute "ap" ap expr))
---     else case expr of
---       ExistsFelt _ expr' -> prepare' ap fp expr'
---       _ -> prepare' ap fp expr
+preparePost ::
+  Expr TFelt -> Expr TFelt -> Expr TBool -> Bool -> CairoSemanticsL (Expr TBool)
+preparePost ap fp expr isOptimizing = do
+  -- traceM ("preparePost called on: " ++ show expr)
+  let dbgRes = if isOptimizing
+                 then exMemoryRemoval (substitute "fp" fp (substitute "ap" ap expr)) <&> ($ [])
+                 else case expr of
+                   ExistsFelt _ innerExpr -> prepare' ap fp innerExpr
+                   _ -> prepare' ap fp expr
+  dbg <- dbgRes
+  traceM ("post before: " ++ show expr)
+  traceM ("post after:  " ++ show dbg)
+  dbgRes
 
 encodeApTracking :: Text -> ApTracking -> Expr TFelt
 encodeApTracking traceDescr ApTracking{..} =
@@ -287,10 +291,10 @@ encodePlainSpec mdl PlainSpec{..} = do
 
   -- I would rather shadow this with the name 'fp', but our setup complains :(
   fpPostExecution <- getFp
-  traceM ("current ps_post: " ++ show ps_post)
-  post <- prepareCheckPoint' apEnd fpPostExecution ps_post
-  traceM ("exTransformed: " ++ show (post []))
-  expect $ post []
+  -- traceM ("current ps_post: " ++ show ps_post)
+  post <- preparePost apEnd fpPostExecution ps_post (m_isOptimizing mdl)
+  -- traceM ("exTransformed: " ++ show post)
+  expect post
 
   whenJust (nonEmpty (m_prog mdl)) $ \neInsts -> do
     mkApConstraints apEnd neInsts
@@ -298,7 +302,7 @@ encodePlainSpec mdl PlainSpec{..} = do
 
 exMemoryRemoval :: Expr TBool -> CairoSemanticsL ([MemoryVariable] -> Expr TBool)
 exMemoryRemoval expr = do
-  traceM ("exMemoryRemoval called on: " ++ show expr)
+  -- traceM ("exMemoryRemoval called on: " ++ show expr)
   (expr', localMemVars, _referencesLocals) <- unsafeMemoryRemoval expr
   pure (intro expr' localMemVars)
  where
@@ -383,9 +387,9 @@ mkCallConstraints pc nextPc fp isOptimizing f = do
   -- We need only a part of the call instruction's semantics for optimizing modules.
   -- This is of course optimization-specific and might need a more robust approach
   -- and better naming scheme should more refinements be done in the future.
-  traceM ("isOptimizing: " ++ show isOptimizing)
+  -- traceM ("isOptimizing: " ++ show isOptimizing)
   unless isOptimizing $ do
-    traceM ("encoding semantics of the call -- isOptimizing" ++ show isOptimizing)
+    -- traceM ("encoding semantics of the call -- isOptimizing" ++ show isOptimizing)
     -- This is reachable unless the module is optimizing, in which case the precondition
     -- of the function is necessarily the last thing being checked; as such, the semantics
     -- of the function being invoked must not be considered.
@@ -397,9 +401,9 @@ mkCallConstraints pc nextPc fp isOptimizing f = do
       let pre' = suffixLogicalVariables lvarSuffix pre
           post' = suffixLogicalVariables lvarSuffix post
       preparedPre <- prepare nextPc calleeFp =<< storageRemoval pre'
-      traceM ("calleePc: " ++ show calleePc ++ " nextPc: " ++ show nextPc)
-      preparedPreDbg <- prepare calleePc calleeFp =<< storageRemoval pre'
-      traceM ("preparedPreDbg: " ++ show preparedPreDbg ++ " preparedPre: " ++ show preparedPre)
+      -- traceM ("calleePc: " ++ show calleePc ++ " nextPc: " ++ show nextPc)
+      -- preparedPreDbg <- prepare calleePc calleeFp =<< storageRemoval pre'
+      -- traceM ("preparedPreDbg: " ++ show preparedPreDbg ++ " preparedPre: " ++ show preparedPre)
 
       -- preparedPreDbg <- prepare calleePc calleeFp =<< storageRemoval pre'
 

@@ -21,4 +21,4 @@
 (assert (and (= MEM!1 $n) (= ap!<root>@4 fp!<root>)))
 (assert (= (mod (+ MEM!1 1) prime) MEM!2))
 (assert true)
-(assert (not (exists (($n Int)) (and (<= 0 $n) (< $n prime) (= MEM!2 (mod (+ $n 1) prime))))))
+(assert (not (= MEM!2 (mod (+ $n 1) prime))))

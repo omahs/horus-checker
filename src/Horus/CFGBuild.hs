@@ -61,7 +61,7 @@ import Horus.SW.ScopedName (ScopedName)
 import Horus.Util (appendList, whenJustM, tShow)
 import Horus.Expr.Util (gatherLogicalVariables)
 
-import Debug.Trace (traceM)
+-- import Debug.Trace (traceM)
 
 data AnnotationType = APre | APost | AInv
   deriving stock (Show)
@@ -223,14 +223,14 @@ addArcsFrom inlinable prog rows s vFrom optimizeWithSplit
             salientCalleeV <- getSalientVertex (sf_pc callee)
             addArc vFrom salientCalleeV insts ACNone . Just $ ArcCall endPc (sf_pc callee)
           else do
-            traceM ("calle here: " ++ show callee)
+            -- traceM ("calle here: " ++ show callee)
             salientLinearV <- getSalientVertex (nextSegmentLabel s)
             addArc' vFrom salientLinearV insts
             when optimizeWithSplit $ do
               ghostV <- addOptimizingVertex (nextSegmentLabel s)
               pre <- maybe (mkPre Expr.True) mkPre . fs'_pre <$> getFuncSpec callee
               addAssertion ghostV $ quantifyEx pre
-              traceM ("original pre: " ++ show pre ++ " ex pre: " ++ show (quantifyEx pre))
+              -- traceM ("original pre: " ++ show pre ++ " ex pre: " ++ show (quantifyEx pre))
               addArc' vFrom ghostV insts
 
               -- let ghostLabel = unspecifiedLabel $ segmentLabel s
