@@ -286,12 +286,13 @@ encodePlainSpec mdl PlainSpec{..} = do
   let instrs = m_prog mdl
   for_ (zip [0 ..] instrs) $ \(idx, instr) ->
     mkInstructionConstraints
-      instr (getNextPcInlinedWithFallback instrs idx) (isOptimising mdl) (m_jnzOracle mdl)
+      instr (getNextPcInlinedWithFallback instrs idx) (m_optimisesF mdl) (m_jnzOracle mdl)
 
   -- I would rather shadow this with the name 'fp', but our setup complains :(
   fpPostExecution <- getFp
   expect =<< preparePost apEnd fpPostExecution ps_post (isOptimising mdl)
-
+  pop
+  
   whenJust (nonEmpty (m_prog mdl)) $ \neInsts -> do
     mkApConstraints apEnd neInsts
     mkBuiltinConstraints apEnd neInsts
@@ -357,12 +358,12 @@ withExecutionCtx ctx action = do
   pop
   pure res
 
-mkInstructionConstraints :: LabeledInst -> Label -> Bool -> Map (NonEmpty Label, Label) Bool -> CairoSemanticsL ()
-mkInstructionConstraints lInst@(pc, Instruction{..}) nextPc isOptimizing jnzOracle = do
+mkInstructionConstraints :: LabeledInst -> Label -> Maybe ScopedFunction -> Map (NonEmpty Label, Label) Bool -> CairoSemanticsL ()
+mkInstructionConstraints lInst@(pc, Instruction{..}) nextPc optimisingF jnzOracle = do
   fp <- getFp
   dst <- prepare pc fp (memory (regToVar i_dstRegister + fromInteger i_dstOffset))
   case i_opCode of
-    Call -> mkCallConstraints pc nextPc fp isOptimizing =<< getCallee lInst
+    Call -> mkCallConstraints pc nextPc fp optimisingF =<< getCallee lInst
     AssertEqual -> getRes fp lInst >>= \res -> assert (res .== dst)
     Nop -> do
       stackTrace <- getOracle
@@ -372,8 +373,8 @@ mkInstructionConstraints lInst@(pc, Instruction{..}) nextPc isOptimizing jnzOrac
         Nothing -> pure ()
     Ret -> pop
 
-mkCallConstraints :: Label -> Label -> Expr TFelt -> Bool -> ScopedFunction -> CairoSemanticsL ()
-mkCallConstraints pc nextPc fp isOptimizing f = do
+mkCallConstraints :: Label -> Label -> Expr TFelt -> Maybe ScopedFunction -> ScopedFunction -> CairoSemanticsL ()
+mkCallConstraints pc nextPc fp optimisingF f = do
   calleeFp <- withExecutionCtx stackFrame getFp
   nextAp <- prepare pc calleeFp (Vars.fp .== Vars.ap + 2)
   saveOldFp <- prepare pc fp (memory Vars.ap .== Vars.fp)
@@ -384,7 +385,7 @@ mkCallConstraints pc nextPc fp isOptimizing f = do
   -- This is of course optimization-specific and might need a more robust approach
   -- and better naming scheme should more refinements be done in the future.
   -- traceM ("isOptimizing: " ++ show isOptimizing)
-  unless isOptimizing $ do
+  unless (Just f == optimisingF) $ do
     -- traceM ("encoding semantics of the call -- isOptimizing" ++ show isOptimizing)
     -- This is reachable unless the module is optimizing, in which case the precondition
     -- of the function is necessarily the last thing being checked; as such, the semantics
@@ -410,7 +411,8 @@ mkCallConstraints pc nextPc fp isOptimizing f = do
       preparedPost <- prepare nextPc calleeFp =<< storageRemoval =<< storageRemoval post'
       -- checkPoint preparedPreCheckPoint
       -- TODO(maybe assert pre dbg?)
-      assert (preparedPre .&& preparedPost)
+      assert preparedPre
+      assert preparedPost
  where
   lvarSuffix = "+" <> tShowLabel pc
   calleePc = sf_pc f
@@ -437,14 +439,14 @@ mkApConstraints apEnd insts = do
       ap2 <- getAp pcNext
       fp <- getFp
       getApIncrement fp lInst >>= \case
-        Just apIncrement -> let res = assert (ap1 + apIncrement .== ap2) in res
+        Just apIncrement -> assert (ap1 + apIncrement .== ap2)
         Nothing | not isNewStackframe -> assert (ap1 .< ap2)
         Nothing -> pure ()
   lastAp <- getAp lastPc
   when (isRet lastInst) pop
   fp <- getFp
   getApIncrement fp lastLInst >>= \case
-    Just lastApIncrement -> let res = assert (lastAp + lastApIncrement .== apEnd) in res
+    Just lastApIncrement -> assert (lastAp + lastApIncrement .== apEnd)
     Nothing -> assert (lastAp .< apEnd)
  where
   lastLInst@(lastPc, lastInst) = NonEmpty.last insts

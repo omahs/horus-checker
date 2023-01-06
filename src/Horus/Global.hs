@@ -177,7 +177,7 @@ outputSmtQueries moduleName es@(_, constraints) = do
   memVars = map (\mv -> (mv_varName mv, mv_addrName mv)) (cs_memoryVariables constraints)
 
   writeSmtFile dir = do
-    writeFile' (dir </> unpack moduleName <> ".smt2") query
+    writeFile' (dir </> unpack moduleName <> ".smt2") (query <> "\n(check-sat)")
 
   getQueryList = do
     queryList <- optimizeQuery query

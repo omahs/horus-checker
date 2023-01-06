@@ -22,3 +22,4 @@
 (assert (= (mod (+ MEM!1 1) prime) MEM!2))
 (assert true)
 (assert (not (= MEM!2 (mod (+ $n 1) prime))))
+(check-sat)
