@@ -60,6 +60,7 @@ import Horus.SW.Identifier (Function (fu_pc), Identifier (IFunction, ILabel))
 import Horus.SW.ScopedName (ScopedName)
 import Horus.Util (appendList, whenJustM, tShow)
 import Horus.Expr.Util (gatherLogicalVariables)
+import Debug.Trace (traceM)
 
 -- import Debug.Trace (traceM)
 
@@ -227,6 +228,7 @@ addArcsFrom inlinable prog rows s vFrom optimizeWithSplit
             salientLinearV <- getSalientVertex (nextSegmentLabel s)
             addArc' vFrom salientLinearV insts
             when optimizeWithSplit $ do
+              traceM ("optimizing the function: " ++ show callee)
               ghostV <- addOptimizingVertex (nextSegmentLabel s)
               pre <- maybe (mkPre Expr.True) mkPre . fs'_pre <$> getFuncSpec callee
               addAssertion ghostV $ quantifyEx pre

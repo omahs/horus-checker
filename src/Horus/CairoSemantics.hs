@@ -220,23 +220,17 @@ prepareCheckPoint pc fp expr = do
 prepareCheckPoint' ::
   Expr TFelt -> Expr TFelt -> Expr TBool -> CairoSemanticsL ([MemoryVariable] -> Expr TBool)
 prepareCheckPoint' ap fp expr = do
-  -- traceM ("prepareCheckpoint' called on: " ++ show expr)
   exMemoryRemoval (substitute "fp" fp (substitute "ap" ap expr))
 
 preparePost ::
   Expr TFelt -> Expr TFelt -> Expr TBool -> Bool -> CairoSemanticsL (Expr TBool)
 preparePost ap fp expr isOptimizing = do
-  -- traceM ("preparePost called on: " ++ show expr)
   memVars <- getMemVars
-  let dbgRes = if isOptimizing
-                 then exMemoryRemoval (substitute "fp" fp (substitute "ap" ap expr)) <&> ($ memVars)
-                 else case expr of
-                   ExistsFelt _ innerExpr -> prepare' ap fp innerExpr
-                   _ -> prepare' ap fp expr
-  dbg <- dbgRes
-  traceM ("post before: " ++ show expr)
-  traceM ("post after:  " ++ show dbg)
-  dbgRes
+  if isOptimizing
+    then exMemoryRemoval (substitute "fp" fp (substitute "ap" ap expr)) <&> ($ memVars)
+    else case expr of
+      ExistsFelt _ innerExpr -> prepare' ap fp innerExpr
+      _ -> prepare' ap fp expr
 
 encodeApTracking :: Text -> ApTracking -> Expr TFelt
 encodeApTracking traceDescr ApTracking{..} =
@@ -296,10 +290,7 @@ encodePlainSpec mdl PlainSpec{..} = do
 
   -- I would rather shadow this with the name 'fp', but our setup complains :(
   fpPostExecution <- getFp
-  -- traceM ("current ps_post: " ++ show ps_post)
-  post <- preparePost apEnd fpPostExecution ps_post (m_isOptimizing mdl)
-  -- traceM ("exTransformed: " ++ show post)
-  expect post
+  expect =<< preparePost apEnd fpPostExecution ps_post (m_isOptimizing mdl)
 
   whenJust (nonEmpty (m_prog mdl)) $ \neInsts -> do
     mkApConstraints apEnd neInsts
