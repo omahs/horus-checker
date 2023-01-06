@@ -9,6 +9,7 @@ module Horus.Module
   , ModuleSpec (..)
   , PlainSpec (..)
   , richToPlainSpec
+  , isOptimising
   )
 where
 
@@ -20,25 +21,27 @@ import Data.Foldable (for_, traverse_)
 import Data.List.NonEmpty (NonEmpty)
 import Data.Map (Map)
 import Data.Map qualified as Map (elems, empty, insert, null, toList)
+import Data.Maybe (isJust, fromJust)
 import Data.Text (Text)
 import Data.Text qualified as Text (concat, cons, intercalate, length)
 import Lens.Micro (ix, (^.))
 import Text.Printf (printf)
 
-import Horus.CFGBuild (ArcCondition (..), Label (unLabel), Vertex (v_label, v_isOptimizing), getVerts)
+import Horus.CFGBuild (ArcCondition (..), Label (unLabel), Vertex (v_label, v_optimisesF), getVerts)
 import Horus.CFGBuild.Runner (CFG (..), verticesLabelledBy)
 import Horus.CallStack (CallStack, calledFOfCallEntry, callerPcOfCallEntry, initialWithFunc, pop, push, stackTrace, top)
 import Horus.Expr (Expr, Ty (..), (.&&), (.==))
 import Horus.Expr qualified as Expr (and)
 import Horus.Expr.SMT (pprExpr)
 import Horus.Expr.Vars (ap, fp)
-import Horus.FunctionAnalysis (FInfo, FuncOp (ArcCall, ArcRet), isRetArc, sizeOfCall)
+import Horus.FunctionAnalysis (FInfo, FuncOp (ArcCall, ArcRet), isRetArc, sizeOfCall, ScopedFunction (sf_scopedName))
 import Horus.Instruction (LabeledInst)
 import Horus.Label (moveLabel)
 import Horus.Program (Identifiers)
 import Horus.SW.FuncSpec (FuncSpec (..))
 import Horus.SW.Identifier (Function (..), getFunctionPc, getLabelPc)
-import Horus.SW.ScopedName (ScopedName (..))
+import Horus.SW.ScopedName (ScopedName (..), toText)
+
 import Debug.Trace (traceM, trace)
 
 data Module = Module
@@ -47,7 +50,7 @@ data Module = Module
   , m_jnzOracle :: Map (NonEmpty Label, Label) Bool
   , m_calledF :: Label
   , m_lastPc :: (CallStack, Label)
-  , m_isOptimizing :: Bool
+  , m_optimisesF :: Maybe ScopedFunction
   }
   deriving stock (Show)
 
@@ -56,6 +59,9 @@ data ModuleSpec = MSRich FuncSpec | MSPlain PlainSpec
 
 data PlainSpec = PlainSpec {ps_pre :: Expr TBool, ps_post :: Expr TBool}
   deriving stock (Show)
+
+isOptimising :: Module -> Bool
+isOptimising = isJust . m_optimisesF
 
 richToPlainSpec :: FuncSpec -> PlainSpec
 richToPlainSpec FuncSpec{..} = PlainSpec{ps_pre = fs_pre .&& ap .== fp, ps_post = fs_post}
@@ -99,7 +105,7 @@ descrOfOracle oracle =
 -- While we do have the name of the called function in Module, it does not contain
 -- the rest of the labels.
 nameOfModule :: Identifiers -> Module -> Text
-nameOfModule idents (Module spec prog oracle _ _ isOptimizing) =
+nameOfModule idents mdl@(Module spec prog oracle _ _ optimisedF) =
   case beginOfModule prog of
     Nothing -> "empty: " <> pprExpr post
     Just label ->
@@ -107,7 +113,7 @@ nameOfModule idents (Module spec prog oracle _ _ isOptimizing) =
           noPrefix = Text.length prefix == 0
        in Text.concat [
             prefix, if noPrefix then "" else ".", labelsDigest, descrOfOracle oracle,
-            if isOptimizing then "X" else ""]
+            if isOptimising mdl then toText . sf_scopedName . fromJust $ optimisedF else ""]
  where
   post = case spec of MSRich fs -> fs_post fs; MSPlain ps -> ps_post ps
 
@@ -217,7 +223,7 @@ gatherFromSource cfg function fSpec = do
     emit spec =
       emitModule (
         Module spec acc oracle' (calledFOfCallEntry $ top callstack')
-               (callstack', l) $ v_isOptimizing v)
+               (callstack', l) $ v_optimisesF v)
 
     visitArcs newOracle acc' pre v' = do
       let outArcs = cfg_arcs cfg ^. ix v'

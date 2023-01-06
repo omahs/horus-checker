@@ -55,7 +55,7 @@ import Horus.Instruction
   , uncheckedCallDestination
   )
 import Horus.Label (Label (..), tShowLabel)
-import Horus.Module (Module (..), ModuleSpec (..), PlainSpec (..), richToPlainSpec)
+import Horus.Module (Module (..), ModuleSpec (..), PlainSpec (..), richToPlainSpec, isOptimising)
 import Horus.Program (ApTracking (..))
 import Horus.SW.Builtin (Builtin, BuiltinOffsets (..))
 import Horus.SW.Builtin qualified as Builtin (name)
@@ -286,11 +286,11 @@ encodePlainSpec mdl PlainSpec{..} = do
   let instrs = m_prog mdl
   for_ (zip [0 ..] instrs) $ \(idx, instr) ->
     mkInstructionConstraints
-      instr (getNextPcInlinedWithFallback instrs idx) (m_isOptimizing mdl) (m_jnzOracle mdl)
+      instr (getNextPcInlinedWithFallback instrs idx) (isOptimising mdl) (m_jnzOracle mdl)
 
   -- I would rather shadow this with the name 'fp', but our setup complains :(
   fpPostExecution <- getFp
-  expect =<< preparePost apEnd fpPostExecution ps_post (m_isOptimizing mdl)
+  expect =<< preparePost apEnd fpPostExecution ps_post (isOptimising mdl)
 
   whenJust (nonEmpty (m_prog mdl)) $ \neInsts -> do
     mkApConstraints apEnd neInsts

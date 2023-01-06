@@ -14,6 +14,7 @@ module Horus.CFGBuild
   , mkInv
   , Vertex (..)
   , getVerts
+  , isOptimising
   )
 where
 
@@ -61,6 +62,7 @@ import Horus.SW.ScopedName (ScopedName)
 import Horus.Util (appendList, whenJustM, tShow)
 import Horus.Expr.Util (gatherLogicalVariables)
 import Debug.Trace (traceM)
+import Data.Maybe (isJust)
 
 -- import Debug.Trace (traceM)
 
@@ -79,7 +81,7 @@ mkInv = (AInv,)
 data Vertex = Vertex
   { v_name :: Text
   , v_label :: Label
-  , v_isOptimizing :: Bool
+  , v_optimisesF :: Maybe ScopedFunction
   }
   deriving (Show)
 
@@ -90,11 +92,14 @@ instance Ord Vertex where
   compare :: Vertex -> Vertex -> Ordering
   compare lhs rhs = v_name lhs `compare` v_name rhs
 
+isOptimising :: Vertex -> Bool
+isOptimising = isJust . v_optimisesF
+
 data ArcCondition = ACNone | ACJnz Label Bool
   deriving stock (Show)
 
 data CFGBuildF a
-  = AddVertex Label Bool (Vertex -> a)
+  = AddVertex Label (Maybe ScopedFunction) (Vertex -> a)
   | AddArc Vertex Vertex [LabeledInst] ArcCondition FInfo a
   | AddAssertion Vertex (AnnotationType, Expr TBool) a
   | AskIdentifiers (Identifiers -> a)
@@ -120,10 +125,10 @@ liftF' :: CFGBuildF a -> CFGBuildL a
 liftF' = CFGBuildL . liftF
 
 addVertex :: Label -> CFGBuildL Vertex
-addVertex l = liftF' (AddVertex l False id)
+addVertex l = liftF' (AddVertex l Nothing id)
 
-addOptimizingVertex :: Label -> CFGBuildL Vertex
-addOptimizingVertex l = liftF' (AddVertex l True id)
+addOptimizingVertex :: Label -> ScopedFunction -> CFGBuildL Vertex
+addOptimizingVertex l f = liftF' (AddVertex l (Just f) id)
 
 addArc :: Vertex -> Vertex -> [LabeledInst] -> ArcCondition -> FInfo -> CFGBuildL ()
 addArc vFrom vTo insts test f = liftF' (AddArc vFrom vTo insts test f ())
@@ -155,7 +160,7 @@ getVerts l = liftF' (GetVerts l id)
 -- It is enforced that for any one PC, one can add at most a single salient vertex
 getSalientVertex :: Label -> CFGBuildL Vertex
 getSalientVertex l = do
-  verts <- filter (not . v_isOptimizing) <$> getVerts l
+  verts <- filter (not . isOptimising) <$> getVerts l
   -- traceM ("verts here: " ++ show verts)
   -- This can be at most one, so len <> 1 implies there are no vertices
   unless (length verts == 1) . throw $ "No vertex with label: " <> tShow l
@@ -229,7 +234,7 @@ addArcsFrom inlinable prog rows s vFrom optimizeWithSplit
             addArc' vFrom salientLinearV insts
             when optimizeWithSplit $ do
               traceM ("optimizing the function: " ++ show callee)
-              ghostV <- addOptimizingVertex (nextSegmentLabel s)
+              ghostV <- addOptimizingVertex (nextSegmentLabel s) callee
               pre <- maybe (mkPre Expr.True) mkPre . fs'_pre <$> getFuncSpec callee
               addAssertion ghostV $ quantifyEx pre
               -- traceM ("original pre: " ++ show pre ++ " ex pre: " ++ show (quantifyEx pre))

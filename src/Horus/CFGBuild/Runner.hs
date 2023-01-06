@@ -20,7 +20,7 @@ import Lens.Micro (Lens', at, (&), (^.), _Just)
 import Lens.Micro.GHC ()
 import Lens.Micro.Mtl ((%=), (<%=))
 
-import Horus.CFGBuild (AnnotationType, ArcCondition (..), CFGBuildF (..), CFGBuildL (..), Label, LabeledInst, Vertex (..))
+import Horus.CFGBuild (AnnotationType, ArcCondition (..), CFGBuildF (..), CFGBuildL (..), Label, LabeledInst, Vertex (..), isOptimising)
 import Horus.ContractInfo (ContractInfo (..))
 import Horus.Expr (Expr, Ty (..))
 import Horus.FunctionAnalysis (FInfo)
@@ -67,8 +67,8 @@ interpret = iterM exec . runCFGBuildL
     -- with the same label for one reason or the other, e.g. optimisation purposes.
     -- Ideally, vertices would be treated uniformally, regardless of their raison d'etre,
     -- removing the need for enforcing invariants like this.
-    if (not . v_isOptimizing) newVertex
-      && (not . null) [vert | vert <- vs, v_label vert == l, (not . v_isOptimizing) vert]
+    if (not . isOptimising) newVertex
+      && (not . null) [vert | vert <- vs, v_label vert == l, (not . isOptimising) vert]
       then throwError "At most one salient Vertex is allowed per PC."
       else cfgVertices %= ([newVertex] `union`) >> cont newVertex
   exec (AddArc lFrom lTo insts test isF cont) = cfgArcs . at lFrom %= doAdd >> cont
