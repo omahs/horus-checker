@@ -86,6 +86,7 @@ data CairoSemanticsF a
   | GetFuncSpec ScopedFunction (FuncSpec' -> a)
   | GetFunPc Label (Label -> a)
   | GetInlinable (Set.Set ScopedFunction -> a)
+  | GetMemVars ([MemoryVariable] -> a)
   | GetStackTraceDescr (Maybe CallStack) (Text -> a)
   | GetOracle (NonEmpty Label -> a)
   | IsInlinable ScopedFunction (Bool -> a)
@@ -127,6 +128,9 @@ getFuncSpec name = liftF (GetFuncSpec name id)
 
 getFunPc :: Label -> CairoSemanticsL Label
 getFunPc l = liftF (GetFunPc l id)
+
+getMemVars :: CairoSemanticsL [MemoryVariable]
+getMemVars = liftF (GetMemVars id)
 
 declareLocalMem :: Expr TFelt -> CairoSemanticsL MemoryVariable
 declareLocalMem address = liftF (DeclareLocalMem address id)
@@ -223,8 +227,9 @@ preparePost ::
   Expr TFelt -> Expr TFelt -> Expr TBool -> Bool -> CairoSemanticsL (Expr TBool)
 preparePost ap fp expr isOptimizing = do
   -- traceM ("preparePost called on: " ++ show expr)
+  memVars <- getMemVars
   let dbgRes = if isOptimizing
-                 then exMemoryRemoval (substitute "fp" fp (substitute "ap" ap expr)) <&> ($ [])
+                 then exMemoryRemoval (substitute "fp" fp (substitute "ap" ap expr)) <&> ($ memVars)
                  else case expr of
                    ExistsFelt _ innerExpr -> prepare' ap fp innerExpr
                    _ -> prepare' ap fp expr

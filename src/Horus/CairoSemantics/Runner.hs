@@ -185,6 +185,8 @@ interpret = iterM exec
     case callstack of
       Nothing -> get >>= cont . digestOfCallStack fNames . fst . e_constraints
       Just stack -> cont $ digestOfCallStack fNames stack
+  exec (GetMemVars cont) = do
+    use (eConstraints . csMemoryVariables) >>= cont
   exec (GetOracle cont) = do
     get >>= cont . stackTrace . fst . e_constraints
   exec (IsInlinable label cont) = do
