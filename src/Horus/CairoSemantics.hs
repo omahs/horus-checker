@@ -230,15 +230,17 @@ preparePost ap fp expr isOptim = do
     -- the encoding there.
     then do
       memVars <- getMemVars
+      let exMemoryRemovalIn e =
+            exMemoryRemoval (substitute "fp" fp (substitute "ap" ap e)) <&> ($ memVars)
       case expr of
+        -- exMemoryRemoval expects inner from (ExistsFelt _ inner), but we still need the existential
         (ExistsFelt name inner) ->
-          (ExistsFelt name . ($ memVars) <$> exMemoryRemoval (substitute "fp" fp (substitute "ap" ap inner))) <* pop
-        _ -> ($ memVars) <$> exMemoryRemoval (substitute "fp" fp (substitute "ap" ap expr)) <* pop
+          (ExistsFelt name <$> exMemoryRemovalIn inner) <* pop
+        _ -> exMemoryRemovalIn expr <* pop
     else prepare' ap fp $ sansExists expr
   where sansExists e = case e of
                          ExistsFelt _ innerExpr -> innerExpr
                          _ -> e
-        -- exMemoryRemovalIn e memVars = ($ memVars) <$> exMemoryRemoval (substitute "fp" fp (substitute "ap" ap e)) <* pop
 
 encodeApTracking :: Text -> ApTracking -> Expr TFelt
 encodeApTracking traceDescr ApTracking{..} =
