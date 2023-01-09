@@ -224,19 +224,21 @@ prepare' ap fp expr = memoryRemoval (substitute "fp" fp (substitute "ap" ap expr
 
 preparePost ::
   Expr TFelt -> Expr TFelt -> Expr TBool -> Bool -> CairoSemanticsL (Expr TBool)
-preparePost ap fp expr isOptimizing = do
-  if isOptimizing
+preparePost ap fp expr isOptim = do
+  if isOptim
     -- Pop is here because the semantics of an optimized call pushes its stackframe and stops
     -- the encoding there.
     then do
       memVars <- getMemVars
-      ($ memVars) <$> exMemoryRemoval (substitute "fp" fp (substitute "ap" ap expr)) <* pop
-    else case expr of
-      ExistsFelt _ innerExpr -> prepare' ap fp innerExpr
-      _ -> prepare' ap fp expr
-  where withoutExists e = case e of
-                            ExistsFelt _ innerExpr -> innerExpr
-                            _ -> e
+      case expr of
+        (ExistsFelt name inner) ->
+          (ExistsFelt name . ($ memVars) <$> exMemoryRemoval (substitute "fp" fp (substitute "ap" ap inner))) <* pop
+        _ -> ($ memVars) <$> exMemoryRemoval (substitute "fp" fp (substitute "ap" ap expr)) <* pop
+    else prepare' ap fp $ sansExists expr
+  where sansExists e = case e of
+                         ExistsFelt _ innerExpr -> innerExpr
+                         _ -> e
+        -- exMemoryRemovalIn e memVars = ($ memVars) <$> exMemoryRemoval (substitute "fp" fp (substitute "ap" ap e)) <* pop
 
 encodeApTracking :: Text -> ApTracking -> Expr TFelt
 encodeApTracking traceDescr ApTracking{..} =
@@ -298,7 +300,7 @@ encodePlainSpec mdl PlainSpec{..} = do
   fpPostExecution <- getFp
   expect =<< preparePost apEnd fpPostExecution ps_post (isOptimising mdl)
   -- pop
-  
+
   whenJust (nonEmpty (m_prog mdl)) $ \neInsts -> do
     mkApConstraints apEnd neInsts
     mkBuiltinConstraints apEnd neInsts

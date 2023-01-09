@@ -1,3 +1,4 @@
+{-# OPTIONS_GHC -Wno-unused-imports #-}
 module Horus.Expr.Util
   ( gatherNonStdFunctions
   , gatherLogicalVariables
@@ -35,7 +36,8 @@ gatherNonStdFunctions = execWriter . transform_ step
   emit f = tell (Set.singleton (Some f))
 
 gatherLogicalVariables :: Expr a -> Set Text
-gatherLogicalVariables expr = trace ("gathering logical variables in: " ++ show expr) . Set.filter isLogical . Set.map takeName . gatherNonStdFunctions $ expr
+gatherLogicalVariables (ExistsFelt name expr) = Set.singleton name `Set.union` gatherLogicalVariables expr
+gatherLogicalVariables expr = Set.filter isLogical . Set.map takeName . gatherNonStdFunctions $ expr
  where
   takeName (Some (Function name)) = name
   isLogical name = "$" `Text.isPrefixOf` name
