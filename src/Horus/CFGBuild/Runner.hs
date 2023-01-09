@@ -24,7 +24,6 @@ import Horus.CFGBuild (AnnotationType, ArcCondition (..), CFGBuildF (..), CFGBui
 import Horus.ContractInfo (ContractInfo (..))
 import Horus.Expr (Expr, Ty (..))
 import Horus.FunctionAnalysis (FInfo)
--- import Debug.Trace (traceM)
 
 type Impl = ReaderT ContractInfo (ExceptT Text (State CFG))
 
@@ -61,7 +60,6 @@ interpret = iterM exec . runCFGBuildL
     freshVal <- cfgVertexCounter <%= succ
     let newVertex = Vertex (Text.pack (show freshVal)) l isOptimizing
     vs <- gets cfg_vertices
-    -- traceM ("new vertex: " ++ show newVertex ++ " other: " ++ show [vert | vert <- vs, v_label vert == l, (not . v_isOptimizing) vert])
     -- Currently, the design is such that it is convenient to be able to distinguish
     -- 'the unique vertex the entire codebase relies on' from vertices that exist
     -- with the same label for one reason or the other, e.g. optimisation purposes.

@@ -47,7 +47,7 @@ func f3(a: felt*) -> (res: felt) {
 // @post $Return.res == 1
 func f4() -> (res: felt) {
     let (ptr) = alloc();
-    assert [ptr] = 0;
+    assert [ptr] = 42;
     let (r) = f3(ptr);
     return (res=r);
 }

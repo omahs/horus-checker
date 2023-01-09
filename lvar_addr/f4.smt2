@@ -125,7 +125,7 @@
 (assert (and (= fp!<24=alloc/root> (mod (+ ap!<root>@8 2) prime)) (= MEM!1 fp!<root>) (= MEM!2 26)))
 (assert true)
 (assert true)
-(assert (= 0 MEM!3))
+(assert (= 42 MEM!3))
 (assert (= MEM!5 MEM!3))
 (assert (= MEM!4 MEM!6))
 (assert (and (= fp!<30=f3/root> (mod (+ ap!<root>@8 7) prime)) (= MEM!7 fp!<root>) (= MEM!8 32)))

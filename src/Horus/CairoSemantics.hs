@@ -1,6 +1,4 @@
 {-# LANGUAGE LambdaCase #-}
-{-# OPTIONS_GHC -Wno-unused-top-binds #-}
-{-# OPTIONS_GHC -Wno-unused-imports #-}
 
 module Horus.CairoSemantics
   ( encodeModule
@@ -65,7 +63,6 @@ import Horus.SW.ScopedName qualified as ScopedName (fromText)
 import Horus.SW.Storage (Storage)
 import Horus.SW.Storage qualified as Storage (equivalenceExpr)
 import Horus.Util (enumerate, tShow, whenJust, whenJustM)
-import Debug.Trace (traceM, trace)
 
 data MemoryVariable = MemoryVariable
   { mv_varName :: Text
@@ -107,9 +104,6 @@ assert' a = liftF (Assert' a ())
 
 expect' :: Expr TBool -> CairoSemanticsL ()
 expect' a = liftF (Expect' a ())
-
-checkPoint :: ([MemoryVariable] -> Expr TBool) -> CairoSemanticsL ()
-checkPoint a = liftF (CheckPoint a ())
 
 declareMem :: Expr TFelt -> CairoSemanticsL (Expr TFelt)
 declareMem address = liftF (DeclareMem address id)
@@ -196,7 +190,6 @@ substitute what forWhat = Expr.canonicalize . Expr.transformId step
  where
   step :: Expr b -> Expr b
   step (Expr.cast @TFelt -> CastOk (Expr.Fun name)) | name == what = forWhat
-  -- step e@(Expr.cast @TFelt -> CastOk (Expr.Fun name)) | name /= what = trace ("stepping e <NOT>: " ++ show e ++ " name: " ++ show name ++ " what: " ++ show what) forWhat
   step (Expr.cast @TBool -> CastOk (Expr.ExistsFelt name expr)) = Expr.ExistsFelt name (substitute what forWhat expr)
   step e = e
 
@@ -211,32 +204,16 @@ prepare pc fp expr = getAp pc >>= \ap -> prepare' ap fp expr
 prepare' :: Expr TFelt -> Expr TFelt -> Expr a -> CairoSemanticsL (Expr a)
 prepare' ap fp expr = memoryRemoval (substitute "fp" fp (substitute "ap" ap expr))
 
--- prepareCheckPoint ::
---   Label -> Expr TFelt -> Expr TBool -> CairoSemanticsL ([MemoryVariable] -> Expr TBool)
--- prepareCheckPoint pc fp expr = do
---   ap <- getAp pc
---   exMemoryRemoval (substitute "fp" fp (substitute "ap" ap expr))
-
--- prepareCheckPoint' ::
---   Expr TFelt -> Expr TFelt -> Expr TBool -> CairoSemanticsL ([MemoryVariable] -> Expr TBool)
--- prepareCheckPoint' ap fp expr = do
---   exMemoryRemoval (substitute "fp" fp (substitute "ap" ap expr))
-
 preparePost ::
   Expr TFelt -> Expr TFelt -> Expr TBool -> Bool -> CairoSemanticsL (Expr TBool)
 preparePost ap fp expr isOptim = do
   if isOptim
-    -- Pop is here because the semantics of an optimized call pushes its stackframe and stops
-    -- the encoding there.
     then do
       memVars <- getMemVars
-      let exMemoryRemovalIn e =
-            exMemoryRemoval (substitute "fp" fp (substitute "ap" ap e)) <&> ($ memVars)
-      case expr of
-        -- exMemoryRemoval expects inner from (ExistsFelt _ inner), but we still need the existential
-        (ExistsFelt name inner) ->
-          (ExistsFelt name <$> exMemoryRemovalIn inner) <* pop
-        _ -> exMemoryRemovalIn expr <* pop
+      -- Pop is here because the semantics of an optimized call pushes its stackframe and stops
+      -- the encoding there. Hopefully we can one day have an optimization post-processing
+      -- pass instead.
+      ($ memVars) <$> exMemoryRemoval (substitute "fp" fp (substitute "ap" ap (sansExists expr))) <* pop
     else prepare' ap fp $ sansExists expr
   where sansExists e = case e of
                          ExistsFelt _ innerExpr -> innerExpr
@@ -301,7 +278,6 @@ encodePlainSpec mdl PlainSpec{..} = do
   -- I would rather shadow this with the name 'fp', but our setup complains :(
   fpPostExecution <- getFp
   expect =<< preparePost apEnd fpPostExecution ps_post (isOptimising mdl)
-  -- pop
 
   whenJust (nonEmpty (m_prog mdl)) $ \neInsts -> do
     mkApConstraints apEnd neInsts
@@ -309,9 +285,7 @@ encodePlainSpec mdl PlainSpec{..} = do
 
 exMemoryRemoval :: Expr TBool -> CairoSemanticsL ([MemoryVariable] -> Expr TBool)
 exMemoryRemoval expr = do
-  -- traceM ("exMemoryRemoval called on: " ++ show expr)
   (expr', localMemVars, _referencesLocals) <- unsafeMemoryRemoval expr
-  traceM ("expr: " ++ show expr ++ " expr': " ++ show expr' ++ " localMemVars: " ++ show localMemVars ++ " _referencesLocals: " ++ show _referencesLocals)
   pure (intro expr' localMemVars)
  where
   exVars = gatherLogicalVariables expr
@@ -339,9 +313,7 @@ exMemoryRemoval expr = do
 
   unsafeMemoryRemoval :: Expr a -> CairoSemanticsL (Expr a, [MemoryVariable], Bool)
   unsafeMemoryRemoval (Memory addr) = do
-    traceM ("Memory: " ++ show addr)
     (addr', localMemVars, referencesLocals) <- unsafeMemoryRemoval addr
-    traceM ("References locals: " ++ show referencesLocals)
     if referencesLocals
       then do
         mv <- declareLocalMem addr'
@@ -349,17 +321,15 @@ exMemoryRemoval expr = do
       else do
         mv <- declareMem addr'
         pure (mv, localMemVars, False)
-  unsafeMemoryRemoval e@Expr.Felt{} = trace ("Felt: " ++ show e) $ pure (e, [], False)
+  unsafeMemoryRemoval e@Expr.Felt{} = pure (e, [], False)
   unsafeMemoryRemoval e@Expr.True = pure (e, [], False)
   unsafeMemoryRemoval e@Expr.False = pure (e, [], False)
-  unsafeMemoryRemoval e@(Expr.Fun name) = trace ("Fun: " ++ show name ++ " exVars: " ++ show exVars) $ pure (e, [], name `Set.member` exVars)
+  unsafeMemoryRemoval e@(Expr.Fun name) = pure (e, [], name `Set.member` exVars)
   unsafeMemoryRemoval (f Expr.:*: x) = do
-    traceM ("f: " ++ show f ++ " x: " ++ show x)
     (f', localMemVars1, referencesLocals1) <- unsafeMemoryRemoval f
     (x', localMemVars2, referencesLocals2) <- unsafeMemoryRemoval x
     pure (f' Expr.:*: x', localMemVars2 <> localMemVars1, referencesLocals1 || referencesLocals2)
   unsafeMemoryRemoval (Expr.ExistsFelt name e) = do
-    traceM ("Exists name: " ++ show name ++ " e: " ++ show e)
     (e', localMemVars, referencesLocals) <- unsafeMemoryRemoval e
     pure (Expr.ExistsFelt name e', localMemVars, referencesLocals)
   unsafeMemoryRemoval (Expr.ExitField e) = do
@@ -399,9 +369,7 @@ mkCallConstraints pc nextPc fp optimisingF f = do
   -- We need only a part of the call instruction's semantics for optimizing modules.
   -- This is of course optimization-specific and might need a more robust approach
   -- and better naming scheme should more refinements be done in the future.
-  -- traceM ("isOptimizing: " ++ show isOptimizing)
   unless (Just f == optimisingF) $ do
-    -- traceM ("encoding semantics of the call -- isOptimizing" ++ show isOptimizing)
     -- This is reachable unless the module is optimizing, in which case the precondition
     -- of the function is necessarily the last thing being checked; as such, the semantics
     -- of the function being invoked must not be considered.
@@ -413,19 +381,9 @@ mkCallConstraints pc nextPc fp optimisingF f = do
       let pre' = suffixLogicalVariables lvarSuffix pre
           post' = suffixLogicalVariables lvarSuffix post
       preparedPre <- prepare nextPc calleeFp =<< storageRemoval pre'
-      -- traceM ("calleePc: " ++ show calleePc ++ " nextPc: " ++ show nextPc)
-      -- preparedPreDbg <- prepare calleePc calleeFp =<< storageRemoval pre'
-      -- traceM ("preparedPreDbg: " ++ show preparedPreDbg ++ " preparedPre: " ++ show preparedPre)
-
-      -- preparedPreDbg <- prepare calleePc calleeFp =<< storageRemoval pre'
-
-      -- preparedPreCheckPoint <- prepareCheckPoint calleePc calleeFp =<< storageRemoval pre'
-      dbgStrg <- traverseStorage (prepare nextPc calleeFp) storage
-      updateStorage dbgStrg
+      updateStorage =<< traverseStorage (prepare nextPc calleeFp) storage
       pop
       preparedPost <- prepare nextPc calleeFp =<< storageRemoval =<< storageRemoval post'
-      -- checkPoint preparedPreCheckPoint
-      -- TODO(maybe assert pre dbg?)
       assert preparedPre
       assert preparedPost
  where

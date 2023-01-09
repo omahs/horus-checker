@@ -42,8 +42,6 @@ import Horus.SW.FuncSpec (FuncSpec (..))
 import Horus.SW.Identifier (Function (..), getFunctionPc, getLabelPc)
 import Horus.SW.ScopedName (ScopedName (..), toText)
 
-import Debug.Trace (traceM, trace)
-
 data Module = Module
   { m_spec :: ModuleSpec
   , m_prog :: [LabeledInst]
@@ -176,7 +174,6 @@ gatherModules cfg = traverse_ $ \(f, _, spec) -> gatherFromSource cfg f spec
 gatherFromSource :: CFG -> Function -> FuncSpec -> ModuleL ()
 gatherFromSource cfg function fSpec = do
   let verticesAtFuPc = verticesLabelledBy cfg $ fu_pc function
-  -- traceM ("verticesAtFuPc: " ++ show verticesAtFuPc)
   for_ verticesAtFuPc $ \v ->
     visit Map.empty (initialWithFunc (fu_pc function)) [] SBRich v ACNone Nothing
  where
