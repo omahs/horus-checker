@@ -22,6 +22,7 @@ import Horus.Expr.Std (Function (..), stdNames)
 import Horus.Expr.Type (Ty (TFelt))
 import Horus.Expr.Vars (prime)
 import Horus.Util (fieldPrime)
+import Debug.Trace (trace)
 
 gatherNonStdFunctions :: Expr a -> Set (Some Function)
 gatherNonStdFunctions = execWriter . transform_ step
@@ -34,7 +35,7 @@ gatherNonStdFunctions = execWriter . transform_ step
   emit f = tell (Set.singleton (Some f))
 
 gatherLogicalVariables :: Expr a -> Set Text
-gatherLogicalVariables = Set.filter isLogical . Set.map takeName . gatherNonStdFunctions
+gatherLogicalVariables expr = trace ("gathering logical variables in: " ++ show expr) . Set.filter isLogical . Set.map takeName . gatherNonStdFunctions $ expr
  where
   takeName (Some (Function name)) = name
   isLogical name = "$" `Text.isPrefixOf` name

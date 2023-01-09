@@ -211,26 +211,32 @@ prepare pc fp expr = getAp pc >>= \ap -> prepare' ap fp expr
 prepare' :: Expr TFelt -> Expr TFelt -> Expr a -> CairoSemanticsL (Expr a)
 prepare' ap fp expr = memoryRemoval (substitute "fp" fp (substitute "ap" ap expr))
 
-prepareCheckPoint ::
-  Label -> Expr TFelt -> Expr TBool -> CairoSemanticsL ([MemoryVariable] -> Expr TBool)
-prepareCheckPoint pc fp expr = do
-  ap <- getAp pc
-  exMemoryRemoval (substitute "fp" fp (substitute "ap" ap expr))
+-- prepareCheckPoint ::
+--   Label -> Expr TFelt -> Expr TBool -> CairoSemanticsL ([MemoryVariable] -> Expr TBool)
+-- prepareCheckPoint pc fp expr = do
+--   ap <- getAp pc
+--   exMemoryRemoval (substitute "fp" fp (substitute "ap" ap expr))
 
-prepareCheckPoint' ::
-  Expr TFelt -> Expr TFelt -> Expr TBool -> CairoSemanticsL ([MemoryVariable] -> Expr TBool)
-prepareCheckPoint' ap fp expr = do
-  exMemoryRemoval (substitute "fp" fp (substitute "ap" ap expr))
+-- prepareCheckPoint' ::
+--   Expr TFelt -> Expr TFelt -> Expr TBool -> CairoSemanticsL ([MemoryVariable] -> Expr TBool)
+-- prepareCheckPoint' ap fp expr = do
+--   exMemoryRemoval (substitute "fp" fp (substitute "ap" ap expr))
 
 preparePost ::
   Expr TFelt -> Expr TFelt -> Expr TBool -> Bool -> CairoSemanticsL (Expr TBool)
 preparePost ap fp expr isOptimizing = do
-  memVars <- getMemVars
   if isOptimizing
-    then exMemoryRemoval (substitute "fp" fp (substitute "ap" ap expr)) <&> ($ memVars)
+    -- Pop is here because the semantics of an optimized call pushes its stackframe and stops
+    -- the encoding there.
+    then do
+      memVars <- getMemVars
+      ($ memVars) <$> exMemoryRemoval (substitute "fp" fp (substitute "ap" ap expr)) <* pop
     else case expr of
       ExistsFelt _ innerExpr -> prepare' ap fp innerExpr
       _ -> prepare' ap fp expr
+  where withoutExists e = case e of
+                            ExistsFelt _ innerExpr -> innerExpr
+                            _ -> e
 
 encodeApTracking :: Text -> ApTracking -> Expr TFelt
 encodeApTracking traceDescr ApTracking{..} =
@@ -291,7 +297,7 @@ encodePlainSpec mdl PlainSpec{..} = do
   -- I would rather shadow this with the name 'fp', but our setup complains :(
   fpPostExecution <- getFp
   expect =<< preparePost apEnd fpPostExecution ps_post (isOptimising mdl)
-  pop
+  -- pop
   
   whenJust (nonEmpty (m_prog mdl)) $ \neInsts -> do
     mkApConstraints apEnd neInsts
@@ -301,6 +307,7 @@ exMemoryRemoval :: Expr TBool -> CairoSemanticsL ([MemoryVariable] -> Expr TBool
 exMemoryRemoval expr = do
   -- traceM ("exMemoryRemoval called on: " ++ show expr)
   (expr', localMemVars, _referencesLocals) <- unsafeMemoryRemoval expr
+  traceM ("expr: " ++ show expr ++ " expr': " ++ show expr' ++ " localMemVars: " ++ show localMemVars ++ " _referencesLocals: " ++ show _referencesLocals)
   pure (intro expr' localMemVars)
  where
   exVars = gatherLogicalVariables expr
@@ -328,7 +335,9 @@ exMemoryRemoval expr = do
 
   unsafeMemoryRemoval :: Expr a -> CairoSemanticsL (Expr a, [MemoryVariable], Bool)
   unsafeMemoryRemoval (Memory addr) = do
+    traceM ("Memory: " ++ show addr)
     (addr', localMemVars, referencesLocals) <- unsafeMemoryRemoval addr
+    traceM ("References locals: " ++ show referencesLocals)
     if referencesLocals
       then do
         mv <- declareLocalMem addr'
@@ -336,15 +345,17 @@ exMemoryRemoval expr = do
       else do
         mv <- declareMem addr'
         pure (mv, localMemVars, False)
-  unsafeMemoryRemoval e@Expr.Felt{} = pure (e, [], False)
+  unsafeMemoryRemoval e@Expr.Felt{} = trace ("Felt: " ++ show e) $ pure (e, [], False)
   unsafeMemoryRemoval e@Expr.True = pure (e, [], False)
   unsafeMemoryRemoval e@Expr.False = pure (e, [], False)
-  unsafeMemoryRemoval e@(Expr.Fun name) = pure (e, [], name `Set.member` exVars)
+  unsafeMemoryRemoval e@(Expr.Fun name) = trace ("Fun: " ++ show name ++ " exVars: " ++ show exVars) $ pure (e, [], name `Set.member` exVars)
   unsafeMemoryRemoval (f Expr.:*: x) = do
+    traceM ("f: " ++ show f ++ " x: " ++ show x)
     (f', localMemVars1, referencesLocals1) <- unsafeMemoryRemoval f
     (x', localMemVars2, referencesLocals2) <- unsafeMemoryRemoval x
     pure (f' Expr.:*: x', localMemVars2 <> localMemVars1, referencesLocals1 || referencesLocals2)
   unsafeMemoryRemoval (Expr.ExistsFelt name e) = do
+    traceM ("Exists name: " ++ show name ++ " e: " ++ show e)
     (e', localMemVars, referencesLocals) <- unsafeMemoryRemoval e
     pure (Expr.ExistsFelt name e', localMemVars, referencesLocals)
   unsafeMemoryRemoval (Expr.ExitField e) = do
