@@ -231,10 +231,9 @@ solveContract lInstructions = do
   traceM ("Set of inlinable functions: " ++ show inlinable)
   cfg <- runCFGBuildL $ buildCFG lInstructions inlinable
   verbosePrint cfg
-  -- cfgs <- for (toAscList inlinable) $ \f -> do
-  --   traceM ("Building a CFG for: " ++ show (difference inlinable (singleton f)))
-  --   runCFGBuildL (buildCFG lInstructions $ difference inlinable (singleton f)) <&> (,(== f))
-  cfgs <- pure []
+  cfgs <- for (toAscList inlinable) $ \f -> do
+    traceM ("Building a CFG for: " ++ show (difference inlinable (singleton f)))
+    runCFGBuildL (buildCFG lInstructions $ difference inlinable (singleton f)) <&> (,(== f))
   for_ cfgs $ verbosePrint . fst
   modules <-
     concat

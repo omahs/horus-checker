@@ -243,7 +243,7 @@ addArcsFrom inlinable prog rows s vFrom optimizeWithSplit
                 returnVs <- mapM (getSalientVertex . (`moveLabel` sizeOfCall)) callers
                 traceM ("returnVs: " ++ show returnVs)
                 traceM ("vFrom: " ++ show vFrom)
-                forM_ returnVs $ \returnV -> addArc endVertex returnV [lInst] ACNone $ Just ArcRet
+                forM_ returnVs $ \returnV -> addArc vFrom returnV [lInst] ACNone $ Just ArcRet
   | JumpAbs <- i_pcUpdate endInst = do
       lTo <- getSalientVertex $ Label (fromInteger (i_imm endInst))
       addArc' vFrom lTo (init insts)
