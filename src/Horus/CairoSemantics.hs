@@ -63,6 +63,7 @@ import Horus.SW.ScopedName qualified as ScopedName (fromText)
 import Horus.SW.Storage (Storage)
 import Horus.SW.Storage qualified as Storage (equivalenceExpr)
 import Horus.Util (enumerate, tShow, whenJust, whenJustM)
+import Debug.Trace (traceM)
 
 data MemoryVariable = MemoryVariable
   { mv_varName :: Text
@@ -279,8 +280,14 @@ encodePlainSpec mdl PlainSpec{..} = do
   expect =<< preparePost apEnd fpPostExecution ps_post (isOptimising mdl)
 
   whenJust (nonEmpty (m_prog mdl)) $ \neInsts -> do
+    st <- getStackTraceDescr
+    traceM ("stack before apConstr: " ++ show st)
     mkApConstraints apEnd neInsts
+    pop
+    st' <- getStackTraceDescr
+    traceM ("stack before mkBuiltintConstr: " ++ show st')
     mkBuiltinConstraints apEnd neInsts
+    pop
 
 exMemoryRemoval :: Expr TBool -> CairoSemanticsL ([MemoryVariable] -> Expr TBool)
 exMemoryRemoval expr = do
@@ -425,6 +432,8 @@ mkApConstraints apEnd insts = do
 
 mkBuiltinConstraints :: Expr TFelt -> NonEmpty LabeledInst -> CairoSemanticsL ()
 mkBuiltinConstraints apEnd insts = do
+  st <- getStackTraceDescr
+  traceM ("initial stack: " ++ show st)
   fp <- getFp
   funPc <- getFunPc (fst (NonEmpty.head insts))
   for_ enumerate $ \b ->
