@@ -1,4 +1,5 @@
 {-# LANGUAGE InstanceSigs #-}
+{-# OPTIONS_GHC -Wno-unused-imports #-}
 module Horus.CFGBuild
   ( CFGBuildL (..)
   , ArcCondition (..)
@@ -62,6 +63,7 @@ import Horus.SW.Identifier (Function (fu_pc), Identifier (IFunction, ILabel))
 import Horus.SW.ScopedName (ScopedName)
 import Horus.Util (appendList, whenJustM, tShow)
 import Horus.Expr.Util (gatherLogicalVariables)
+import Debug.Trace (traceM, trace)
 
 data AnnotationType = APre | APost | AInv
   deriving stock (Show)
@@ -128,7 +130,7 @@ addOptimizingVertex :: Label -> ScopedFunction -> CFGBuildL Vertex
 addOptimizingVertex l f = liftF' (AddVertex l (Just f) id)
 
 addArc :: Vertex -> Vertex -> [LabeledInst] -> ArcCondition -> FInfo -> CFGBuildL ()
-addArc vFrom vTo insts test f = liftF' (AddArc vFrom vTo insts test f ())
+addArc vFrom vTo insts test f = trace ("adding arc: " ++ show vFrom ++ " -> " ++ show vTo) $ liftF' (AddArc vFrom vTo insts test f ())
 
 addAssertion :: Vertex -> (AnnotationType, Expr TBool) -> CFGBuildL ()
 addAssertion v assertion = liftF' (AddAssertion v assertion ())
@@ -211,7 +213,7 @@ addArcsFrom :: Set ScopedFunction -> Program -> [LabeledInst] -> Segment -> Vert
 addArcsFrom inlinable prog rows s vFrom optimizeWithSplit
   | Call <- i_opCode endInst =
     let callee = uncheckedScopedFOfPc (p_identifiers prog) (uncheckedCallDestination lInst)
-     in if callee `Set.member` inlinable
+     in trace ("callee: " ++ show callee ++ " is inlinable: " ++ show (callee `Set.member` inlinable)) $ if callee `Set.member` inlinable
           then do
             salientCalleeV <- getSalientVertex (sf_pc callee)
             addArc vFrom salientCalleeV insts ACNone . Just $ ArcCall endPc (sf_pc callee)
@@ -230,14 +232,17 @@ addArcsFrom inlinable prog rows s vFrom optimizeWithSplit
               addArc' vFrom ghostV insts
   | Ret <- i_opCode endInst =
       let owner = sf_pc $ pcToFunOfProg prog ! endPc
-       in do
+       in trace ("RET owner: " ++ show owner) $ do
         endVertex <- getSalientVertex owner
+        traceM ("endVertex: " ++ show endVertex)
         if owner `Set.notMember` inlinableLabels -- TODO: Don't think this ever triggers, try this.
             then pure ()
             else
               let callers = callersOf rows owner
                in do
                 returnVs <- mapM (getSalientVertex . (`moveLabel` sizeOfCall)) callers
+                traceM ("returnVs: " ++ show returnVs)
+                traceM ("vFrom: " ++ show vFrom)
                 forM_ returnVs $ \returnV -> addArc endVertex returnV [lInst] ACNone $ Just ArcRet
   | JumpAbs <- i_pcUpdate endInst = do
       lTo <- getSalientVertex $ Label (fromInteger (i_imm endInst))
@@ -252,6 +257,7 @@ addArcsFrom inlinable prog rows s vFrom optimizeWithSplit
       addArc vFrom lTo2 insts (ACJnz endPc True) Nothing
   | otherwise = do
       lTo <- getSalientVertex $ nextSegmentLabel s
+      traceM ("Otherwise lTo: " ++ show lTo)
       addArc' vFrom lTo insts
  where
   lInst@(endPc, endInst) = NonEmpty.last (coerce s)
