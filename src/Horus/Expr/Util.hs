@@ -1,4 +1,3 @@
-{-# OPTIONS_GHC -Wno-unused-imports #-}
 module Horus.Expr.Util
   ( gatherNonStdFunctions
   , gatherLogicalVariables
@@ -23,7 +22,6 @@ import Horus.Expr.Std (Function (..), stdNames)
 import Horus.Expr.Type (Ty (TFelt))
 import Horus.Expr.Vars (prime)
 import Horus.Util (fieldPrime)
-import Debug.Trace (trace)
 
 gatherNonStdFunctions :: Expr a -> Set (Some Function)
 gatherNonStdFunctions = execWriter . transform_ step
@@ -36,7 +34,8 @@ gatherNonStdFunctions = execWriter . transform_ step
   emit f = tell (Set.singleton (Some f))
 
 gatherLogicalVariables :: Expr a -> Set Text
-gatherLogicalVariables (ExistsFelt name expr) = Set.singleton name `Set.union` gatherLogicalVariables expr
+gatherLogicalVariables (ExistsFelt name expr) =
+  Set.singleton name `Set.union` gatherLogicalVariables expr
 gatherLogicalVariables expr = Set.filter isLogical . Set.map takeName . gatherNonStdFunctions $ expr
  where
   takeName (Some (Function name)) = name

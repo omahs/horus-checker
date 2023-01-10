@@ -219,6 +219,11 @@ addArcsFrom inlinable prog rows s vFrom optimizeWithSplit
             salientLinearV <- getSalientVertex (nextSegmentLabel s)
             addArc' vFrom salientLinearV insts
             when optimizeWithSplit $ do
+              -- Suppose F calls G where G has a precondition. We synthesize an extra module
+              -- Pre(F) -> Pre(G) to check whether Pre(G) holds. The standard module for F
+              -- is then Pre(F) -> Post(F) (conceptually, unless there's a split in the middle, etc.),
+              -- in which Pre(G) is assumed to hold at the PC of the G call site, as it will have
+              -- been checked by the module induced by the ghost vertex.
               ghostV <- addOptimizingVertex (nextSegmentLabel s) callee
               pre <- maybe (mkPre Expr.True) mkPre . fs'_pre <$> getFuncSpec callee
               addAssertion ghostV $ quantifyEx pre

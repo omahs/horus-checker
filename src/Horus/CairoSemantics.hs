@@ -74,7 +74,6 @@ data MemoryVariable = MemoryVariable
 data CairoSemanticsF a
   = Assert' (Expr TBool) a
   | Expect' (Expr TBool) a
-  | CheckPoint ([MemoryVariable] -> Expr TBool) a
   | DeclareMem (Expr TFelt) (Expr TFelt -> a)
   | DeclareLocalMem (Expr TFelt) (MemoryVariable -> a)
   | GetApTracking Label (ApTracking -> a)

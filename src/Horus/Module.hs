@@ -1,4 +1,3 @@
-{-# OPTIONS_GHC -Wno-unused-imports #-}
 module Horus.Module
   ( Module (..)
   , ModuleL (..)
@@ -27,7 +26,7 @@ import Data.Text qualified as Text (concat, cons, intercalate, length)
 import Lens.Micro (ix, (^.))
 import Text.Printf (printf)
 
-import Horus.CFGBuild (ArcCondition (..), Label (unLabel), Vertex (v_label, v_optimisesF), getVerts)
+import Horus.CFGBuild (ArcCondition (..), Label (unLabel), Vertex (v_label, v_optimisesF))
 import Horus.CFGBuild.Runner (CFG (..), verticesLabelledBy)
 import Horus.CallStack (CallStack, calledFOfCallEntry, callerPcOfCallEntry, initialWithFunc, pop, push, stackTrace, top)
 import Horus.Expr (Expr, Ty (..), (.&&), (.==))
@@ -111,7 +110,9 @@ nameOfModule idents mdl@(Module spec prog oracle _ _ optimisedF) =
           noPrefix = Text.length prefix == 0
        in Text.concat [
             prefix, if noPrefix then "" else ".", labelsDigest, descrOfOracle oracle,
-            if isOptimising mdl then toText . sf_scopedName . fromJust $ optimisedF else ""]
+            if isOptimising mdl
+              then "<" <> (toText . sf_scopedName . fromJust $ optimisedF) <> ">"
+              else ""]
  where
   post = case spec of MSRich fs -> fs_post fs; MSPlain ps -> ps_post ps
 

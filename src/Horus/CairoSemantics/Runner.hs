@@ -23,7 +23,7 @@ import Data.Function ((&))
 import Data.Functor (($>))
 import Data.List qualified as List (find, tails)
 import Data.Map qualified as Map (map, null, unionWith)
-import Data.Maybe (fromMaybe, mapMaybe)
+import Data.Maybe (mapMaybe)
 import Data.Singletons (sing)
 import Data.Some (foldSome)
 import Data.Text (Text)
@@ -36,7 +36,7 @@ import Horus.CairoSemantics (CairoSemanticsF (..), CairoSemanticsL, MemoryVariab
 import Horus.CallStack (CallStack, digestOfCallStack, pop, push, stackTrace, top)
 import Horus.Command.SMT qualified as Command
 import Horus.ContractInfo (ContractInfo (..))
-import Horus.Expr (Expr (ExitField, Fun), Ty (..), unAnd, (.&&), (.<), (.<=), (.==), (.=>), (.||))
+import Horus.Expr (Expr (ExitField, Fun), Ty (..), (.&&), (.<), (.<=), (.==), (.=>))
 import Horus.Expr qualified as Expr
 import Horus.Expr.SMT (pprExpr)
 import Horus.Expr.Std (Function (..))
@@ -124,26 +124,6 @@ interpret = iterM exec
   exec :: CairoSemanticsF (Impl a) -> Impl a
   exec (Assert' a cont) = eConstraints . csAsserts %= (QFAss a :) >> cont
   exec (Expect' a cont) = eConstraints . csExpects %= (a :) >> cont
-  exec (CheckPoint a cont) = do
-    initAss <- use (eConstraints . csAsserts)
-    initExp <- use (eConstraints . csExpects)
-    eConstraints . csAsserts .= []
-    eConstraints . csExpects .= []
-    r <- cont
-    restAss <- use (eConstraints . csAsserts)
-    restExp <- use (eConstraints . csExpects)
-    eConstraints . csAsserts
-      .= ( ExistentialAss
-            ( \mv ->
-                let rest = map (builderToAss mv) restAss
-                    asAtoms = concatMap (\x -> fromMaybe [x] (unAnd x)) rest
-                 in (a mv .|| Expr.not (Expr.and (filter (/= a mv) asAtoms)))
-                      .=> Expr.and (rest ++ [Expr.not (Expr.and restExp) | not (null restExp)])
-            )
-            : initAss
-         )
-    eConstraints . csExpects .= initExp
-    pure r
   exec (DeclareMem address cont) = do
     memVars <- use (eConstraints . csMemoryVariables)
     case List.find ((address ==) . mv_addrExpr) memVars of
