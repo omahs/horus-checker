@@ -12,7 +12,7 @@ func apply_range_check{range_check_ptr}(a) -> () {
 // @post a < 2**128
 func main{range_check_ptr}(a) {
     tempvar initial_range_check_ptr = range_check_ptr;
-    let fake_ptr = 42;
+    let fake_ptr = 0;
     apply_range_check{range_check_ptr=fake_ptr}(a);
     let range_check_ptr = initial_range_check_ptr;
     return ();

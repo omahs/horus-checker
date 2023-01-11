@@ -33,7 +33,7 @@ import Lens.Micro.GHC ()
 import Lens.Micro.Mtl (use, (%=), (.=), (<%=))
 
 import Horus.CairoSemantics (CairoSemanticsF (..), CairoSemanticsL, MemoryVariable (..))
-import Horus.CallStack (CallStack, digestOfCallStack, pop, push, stackTrace, top)
+import Horus.CallStack (CallStack, digestOfCallStack, pop, push, stackTrace, top, reset)
 import Horus.Command.SMT qualified as Command
 import Horus.ContractInfo (ContractInfo (..))
 import Horus.Expr (Expr (ExitField, Fun), Ty (..), (.&&), (.<), (.<=), (.==), (.=>))
@@ -182,6 +182,7 @@ interpret = iterM exec
       throwError (plainSpecStorageAccessErr <> " '" <> tShow name <> "'.")
     storage <- use eStorage
     cont (Storage.read storage name args)
+  exec (ResetStack cont) = eConstraints . csCallStack %= reset >> cont
   exec (UpdateStorage newStorage cont) = do
     storageEnabled <- use eStorageEnabled
     unless (storageEnabled || Map.null newStorage) $
