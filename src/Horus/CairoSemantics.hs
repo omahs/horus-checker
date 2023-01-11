@@ -464,7 +464,7 @@ mkBuiltinConstraints apEnd insts optimisesF = do
       Just bo -> do
         let (pre, post) = getBuiltinContract fp apEnd b bo
         if isJust optimisesF
-          then trace ("just pre: " ++ show pre) $ expect pre
+          then trace ("just pre: " ++ show pre) $ assert pre
           else assert pre *> expect post
         for_ (zip (NonEmpty.toList insts) [0 ..]) $ \(inst, i) ->
           mkBuiltinConstraintsForInst i (NonEmpty.toList insts) b inst optimisesF
@@ -486,10 +486,18 @@ mkBuiltinConstraintsForInst pos instrs b inst@(pc, Instruction{..}) optimisesF =
     case i_opCode of
       Call -> do
         callee <- getCallee inst
-        unless (optimisesF == Just callee) $ do
-          push (pc, sf_pc callee)
-          canInline <- isInlinable callee
-          unless canInline $ mkBuiltinConstraintsForFunc False
+        push (pc, sf_pc callee)
+        if optimisesF == Just callee
+          then do
+            calleeFp <- getFp
+            callEntry@(_, calleePc) <- top <* pop
+            whenJustM (getBuiltinOffsets calleePc b) $ \bo -> do
+              calleeApEnd <- getAp (getNextPcInlinedWithFallback instrs pos)
+              let (pre, _) = getBuiltinContract calleeFp calleeApEnd b bo
+              expect pre
+          else do
+            canInline <- isInlinable callee
+            unless canInline $ mkBuiltinConstraintsForFunc False
       AssertEqual -> do
         res <- getRes fp inst
         case res of
