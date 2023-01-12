@@ -265,7 +265,8 @@ encodeRichSpec mdl funcSpec@(FuncSpec _pre _post storage) = do
   preparedStorage <- traverseStorage (prepare' apEnd fp) storage
   encodePlainSpec mdl plainSpec
   accumulatedStorage <- getStorage
-  expect (Storage.equivalenceExpr accumulatedStorage preparedStorage)
+  unless (isOptimising mdl) $
+    expect (Storage.equivalenceExpr accumulatedStorage preparedStorage)
  where
   plainSpec = richToPlainSpec funcSpec
 
