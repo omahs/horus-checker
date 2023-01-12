@@ -12,6 +12,6 @@ func apply_bitwise{bitwise_ptr: BitwiseBuiltin*}(a, b) -> (c: felt, d: felt, e: 
 
 func main{bitwise_ptr: BitwiseBuiltin*}(b) -> (c: felt, d: felt, e: felt) {
     let fake_ptr = cast(42, BitwiseBuiltin*);
-    let (c, d, e) = apply_bitwise{bitwise_ptr=fake_ptr}(24601, b);
+    let (c, d, e) = apply_bitwise{bitwise_ptr=bitwise_ptr}(24601, b);
     return (c, d, e);
 }

@@ -19,7 +19,7 @@ import Data.List.NonEmpty (NonEmpty, nonEmpty)
 import Data.List.NonEmpty qualified as NonEmpty (head, last, tail, toList)
 import Data.Map (Map)
 import Data.Map qualified as Map ((!?))
-import Data.Maybe (fromMaybe, isJust)
+import Data.Maybe (fromMaybe)
 import Data.Set qualified as Set (Set, member)
 import Data.Text (Text)
 import Data.Traversable (for)
@@ -66,8 +66,6 @@ import Horus.SW.ScopedName qualified as ScopedName (fromText)
 import Horus.SW.Storage (Storage)
 import Horus.SW.Storage qualified as Storage (equivalenceExpr)
 import Horus.Util (enumerate, tShow, whenJust, whenJustM)
-
-import Debug.Trace (traceM, trace)
 
 data MemoryVariable = MemoryVariable
   { mv_varName :: Text
@@ -253,7 +251,7 @@ moduleEndAp Module{m_prog = []} = getStackTraceDescr <&> Expr.const . ("ap!" <>)
 moduleEndAp m@Module{m_prog = _} = getAp' (Just callstack) pc where (callstack, pc) = m_lastPc m
 
 encodeModule :: Module -> CairoSemanticsL ()
-encodeModule m@Module{..} = trace ("ENCODE MODULE") $ case m_spec of
+encodeModule m@Module{..} = case m_spec of
   MSRich spec -> encodeRichSpec m spec
   MSPlain spec -> encodePlainSpec m spec
 
@@ -281,10 +279,6 @@ encodePlainSpec mdl PlainSpec{..} = do
 
   let instrs = m_prog mdl
 
-  traceM ("MODULE")
-  sts <- getStackTraceDescr
-  -- traceM ("stack before instructions: " ++ show sts)
-
   -- The last FP might be influenced in the optimizing case, we need to grab it as propagated
   -- by the encoding of the semantics of the call. It might be worth implementing a separate
   -- optimisation pass, as this is somewhat wobbly.
@@ -292,21 +286,18 @@ encodePlainSpec mdl PlainSpec{..} = do
     mkInstructionConstraints
       instr (getNextPcInlinedWithFallback instrs idx) (m_optimisesF mdl) (m_jnzOracle mdl))
 
-  traceM ("lastFp: " ++ show lastFp)
-
   -- I would rather shadow this with the name 'fp', but our setup complains :(
   -- fpPostExecution <- getFp
   expect =<< preparePost apEnd lastFp ps_post (isOptimising mdl)
 
   whenJust (nonEmpty (m_prog mdl)) $ \neInsts -> do
+    -- Stack is reset to its initial state because when the pre-optimisation kicks in,
+    -- it does a push without pop.
     resetStack
-    st <- getStackTraceDescr
-    -- traceM ("stack before apConstr: " ++ show st)
     mkApConstraints apEnd neInsts
     resetStack
-    st' <- getStackTraceDescr
-    -- traceM ("stack before mkBuiltintConstr: " ++ show st')
-    mkBuiltinConstraints apEnd neInsts (m_optimisesF mdl)
+    unless (isOptimising mdl) $
+      mkBuiltinConstraints apEnd neInsts
 
 exMemoryRemoval :: Expr TBool -> CairoSemanticsL ([MemoryVariable] -> Expr TBool)
 exMemoryRemoval expr = do
@@ -454,21 +445,17 @@ mkApConstraints apEnd insts = do
  where
   lastLInst@(lastPc, lastInst) = NonEmpty.last insts
 
-mkBuiltinConstraints :: Expr TFelt -> NonEmpty LabeledInst -> Maybe ScopedFunction -> CairoSemanticsL ()
-mkBuiltinConstraints apEnd insts optimisesF = do
-  st <- getStackTraceDescr
+mkBuiltinConstraints :: Expr TFelt -> NonEmpty LabeledInst -> CairoSemanticsL ()
+mkBuiltinConstraints apEnd insts = do
   fp <- getFp
   funPc <- getFunPc (fst (NonEmpty.head insts))
-  for_ enumerate $ \b -> do
-    traceM ("making builtin constraints for: " ++ show b)
+  for_ enumerate $ \b ->
     getBuiltinOffsets funPc b >>= \case
       Just bo -> do
         let (pre, post) = getBuiltinContract fp apEnd b bo
-        if isJust optimisesF
-          then trace ("just pre: " ++ show pre) $ assert pre
-          else assert pre *> expect post
+        assert pre *> expect post
         for_ (zip (NonEmpty.toList insts) [0 ..]) $ \(inst, i) ->
-          mkBuiltinConstraintsForInst i (NonEmpty.toList insts) b inst optimisesF
+          mkBuiltinConstraintsForInst i (NonEmpty.toList insts) b inst
       Nothing -> checkBuiltinNotRequired b (toList insts)
 
 getBuiltinContract ::
@@ -480,25 +467,15 @@ getBuiltinContract fp apEnd b bo = (pre, post)
   initialPtr = memory (fp - fromIntegral (bo_input bo))
   finalPtr = memory (apEnd - fromIntegral (bo_output bo))
 
-mkBuiltinConstraintsForInst :: Int -> [LabeledInst] -> Builtin -> LabeledInst -> Maybe ScopedFunction -> CairoSemanticsL ()
-mkBuiltinConstraintsForInst pos instrs b inst@(pc, Instruction{..}) optimisesF =
+mkBuiltinConstraintsForInst :: Int -> [LabeledInst] -> Builtin -> LabeledInst -> CairoSemanticsL ()
+mkBuiltinConstraintsForInst pos instrs b inst@(pc, Instruction{..}) =
   getFp >>= \fp -> do
-    traceM ("making builtin constraints for inst: " ++ show inst)
     case i_opCode of
       Call -> do
         callee <- getCallee inst
         push (pc, sf_pc callee)
-        if optimisesF == Just callee
-          then do
-            calleeFp <- getFp
-            callEntry@(_, calleePc) <- top <* pop
-            whenJustM (getBuiltinOffsets calleePc b) $ \bo -> do
-              calleeApEnd <- getAp (getNextPcInlinedWithFallback instrs pos)
-              let (pre, _) = getBuiltinContract calleeFp calleeApEnd b bo
-              expect pre
-          else do
-            canInline <- isInlinable callee
-            unless canInline $ mkBuiltinConstraintsForFunc False
+        canInline <- isInlinable callee
+        unless canInline $ mkBuiltinConstraintsForFunc False
       AssertEqual -> do
         res <- getRes fp inst
         case res of
