@@ -1,0 +1,12 @@
+main<__main__.pred>
+Unsat
+main
+Sat
+pred
+Unsat
+succ
+Unsat
+id<__main__.pred>
+Unsat
+id
+Unsat

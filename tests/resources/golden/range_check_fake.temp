@@ -1,0 +1,20 @@
+max<starkware.cairo.common.math_cmp.is_le>
+Unsat
+max+T
+Unknown
+Error: The function doesn't require the 'range-check' builtin, but calls a function (at PC 78) that does require it
+max+F
+Unknown
+Error: The function doesn't require the 'range-check' builtin, but calls a function (at PC 78) that does require it
+cairo.common.math_cmp.is_le<starkware.cairo.common.math_cmp.is_nn>
+Unsat
+cairo.common.math_cmp.is_le
+Unsat
+cairo.common.math_cmp.is_nn+TT<starkware.cairo.common.math.assert_le_felt>
+Unsat
+cairo.common.math_cmp.is_nn+TT
+Unsat
+cairo.common.math_cmp.is_nn+TF
+Unsat
+cairo.common.math_cmp.is_nn+F
+Unsat

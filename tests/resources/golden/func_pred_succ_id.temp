@@ -1,0 +1,16 @@
+comp_id<__main__.pred>
+Unsat
+comp_id<__main__.succ>
+Unsat
+comp_id
+Unsat
+id
+Unsat
+main<__main__.comp_id>
+Unsat
+main
+Unsat
+pred
+Unsat
+succ
+Unsat

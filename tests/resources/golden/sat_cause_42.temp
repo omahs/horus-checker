@@ -1,0 +1,12 @@
+f<__main__.f>
+Unsat
+f
+Unsat
+main
+Unsat
+main.loop+T
+Unsat
+main.loop+F<__main__.f>
+Unsat
+main.loop+F
+Sat

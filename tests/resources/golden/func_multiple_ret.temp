@@ -1,0 +1,10 @@
+main<__main__.succpred>
+Unsat
+main
+Unsat
+succpred+T
+Unsat
+succpred.add
+Unsat
+succpred+F
+Unsat

@@ -1,0 +1,10 @@
+main<__main__.square_succ>
+Unsat
+main
+Unsat
+square_succ<__main__.succ>
+Unsat
+square_succ
+Unsat
+succ
+Unsat

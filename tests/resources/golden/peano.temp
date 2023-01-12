@@ -1,0 +1,14 @@
+dec
+Unsat
+peano_sum+T<__main__.succ>
+Unsat
+peano_sum+T<__main__.dec>
+Unsat
+peano_sum+T<__main__.peano_sum>
+Unsat
+peano_sum+T
+Unsat
+peano_sum+F
+Unsat
+succ
+Unsat

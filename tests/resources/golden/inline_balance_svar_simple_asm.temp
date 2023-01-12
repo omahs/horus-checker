@@ -1,0 +1,14 @@
+main<__main__.balance.write>
+Unsat
+main<__main__.balance.read>
+Unsat
+main
+Sat
+starknet.common.syscalls.storage_read
+Unsat
+starknet.common.syscalls.storage_write
+Unsat
+f<__main__.balance.read>
+Unsat
+f
+Unsat

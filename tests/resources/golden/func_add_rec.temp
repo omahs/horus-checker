@@ -1,0 +1,14 @@
+add+T<__main__.add>
+Unsat
+add+T<__main__.inc>
+Unsat
+add+T
+Unsat
+add+F
+Unsat
+inc
+Unsat
+main<__main__.add>
+Unsat
+main
+Unsat

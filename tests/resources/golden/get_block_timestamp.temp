@@ -1,0 +1,10 @@
+test_invalid_1<starkware.starknet.common.syscalls.get_block_timestamp>
+Unsat
+test_invalid_1
+Sat
+test_invalid_2
+Sat
+test_valid<starkware.starknet.common.syscalls.get_block_timestamp>
+Unsat
+test_valid
+Unsat
